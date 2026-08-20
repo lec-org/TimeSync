@@ -1,0 +1,21 @@
+# Qt/CMake build output
+build/
+out/
+cmake-build-*/
+
+# Generated local configuration and deployment files
+config.ini
+deploy/
+
+# IDE and compiler artifacts
+.cache/
+.idea/
+*.user
+*.pdb
+*.ilk
+*.o
+*.obj
+*.exe
+*.dll
+*.a
+*.lib
