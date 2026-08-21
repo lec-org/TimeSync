@@ -1,8 +1,13 @@
-cmake_minimum_required(VERSION 3.21)
+cmake_minimum_required(VERSION 3.22)
 
 project(TimeSync VERSION 1.0.0 LANGUAGES CXX)
 
 option(TIMESYNC_BUILD_TESTS "Build focused backend tests" ON)
+
+if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Debug Release RelWithDebInfo MinSizeRel)
+endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -13,6 +18,14 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC OFF)
 
 find_package(Qt6 6.9.1 REQUIRED COMPONENTS Core Network Widgets)
+
+get_target_property(TIMESYNC_QT_CORE_TYPE Qt6::Core TYPE)
+set(TIMESYNC_STATIC_QT OFF)
+if(TIMESYNC_QT_CORE_TYPE STREQUAL "STATIC_LIBRARY"
+   OR (DEFINED QT6_IS_SHARED_LIBS_BUILD AND NOT QT6_IS_SHARED_LIBS_BUILD))
+    set(TIMESYNC_STATIC_QT ON)
+endif()
+message(STATUS "TimeSync Qt linkage: static=${TIMESYNC_STATIC_QT}")
 
 set(TIMESYNC_BACKEND_SOURCES
     src/core/config_repository.cpp
@@ -62,7 +75,7 @@ set(TIMESYNC_UI_HEADERS
     src/ui/ui_types.h
 )
 
-add_executable(TimeSync WIN32
+qt_add_executable(TimeSync MANUAL_FINALIZATION WIN32
     src/app/main.cpp
     src/app/app_controller.cpp
     src/app/app_controller.h
@@ -77,6 +90,24 @@ target_sources(TimeSync PRIVATE resources/timesync.qrc)
 if(WIN32)
     target_sources(TimeSync PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/resources/timesync_manifest.rc")
 endif()
+
+if(TIMESYNC_STATIC_QT)
+    if(NOT TARGET Qt6::QWindowsIntegrationPlugin)
+        message(FATAL_ERROR "Static Qt kit does not provide QWindowsIntegrationPlugin")
+    endif()
+    if(NOT TARGET Qt6::QSchannelBackendPlugin)
+        message(FATAL_ERROR "Static Qt kit does not provide QSchannelBackendPlugin; rebuild Qt with Schannel")
+    endif()
+    qt_import_plugins(TimeSync INCLUDE
+        Qt6::QWindowsIntegrationPlugin
+        Qt6::QSchannelBackendPlugin
+    )
+    if(MINGW)
+        target_link_options(TimeSync PRIVATE -static -static-libgcc -static-libstdc++)
+    endif()
+endif()
+
+qt_finalize_target(TimeSync)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/Deploy.cmake")
 

@@ -1,13 +1,17 @@
 #include "../src/cli/cli_parser.h"
 #include "../src/core/config_repository.h"
 #include "../src/core/trusted_clock.h"
+#include "../src/network/ntp_client.h"
 #include "../src/network/ntp_protocol.h"
 #include "../src/platform/task_scheduler.h"
 
+#include <QElapsedTimer>
 #include <QFile>
+#include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QTimeZone>
+#include <QUdpSocket>
 
 using namespace TimeSync;
 
@@ -19,6 +23,11 @@ private slots:
     void configInvalidFileIsNotOverwritten();
     void ntpCodecAcceptsDeterministicResponse();
     void ntpCodecRejectsInvalidResponse();
+    void ntpSocketFamilySelectionIsDeterministic();
+    void ntpFailureDiagnosticIsStable();
+    void ntpClientReceivesFromLocalIpv4Server();
+    void ntpClientTimesOutUsingWorkerTimer();
+    void ntpClientReceivesFromLocalIpv6ServerWhenAvailable();
     void trustedClockAdvancesAndBecomesStale();
     void cliRejectsConflictsAndMapsExitCodes();
     void taskActionArgumentsAreAbsoluteAndQuoted();
@@ -34,10 +43,12 @@ void BackendTests::configDefaultsAndCreation()
     const Result<ConfigLoadResult> loaded = repository.load(path);
     QVERIFY(loaded);
     QVERIFY(loaded.value().created);
-    QCOMPARE(loaded.value().config.servers.size(), 23);
+    QCOMPARE(loaded.value().config.servers.size(), 25);
     QCOMPARE(loaded.value().config.servers.first(), QStringLiteral("ntp1.aliyun.com"));
     QCOMPARE(loaded.value().config.servers.at(6), QStringLiteral("ntp7.aliyun.com"));
-    QCOMPARE(loaded.value().config.servers.at(7), QStringLiteral("s1a.time.edu.cn"));
+    QCOMPARE(loaded.value().config.servers.at(7), QStringLiteral("ntp1.nim.ac.cn"));
+    QCOMPARE(loaded.value().config.servers.at(8), QStringLiteral("ntp2.nim.ac.cn"));
+    QCOMPARE(loaded.value().config.servers.at(9), QStringLiteral("s1a.time.edu.cn"));
     QCOMPARE(loaded.value().config.servers.last(), QStringLiteral("s2m.time.edu.cn"));
     QCOMPARE(loaded.value().config.scheduleIntervalMinutes, 60);
     QCOMPARE(loaded.value().config.language, QStringLiteral("zh-CN"));
@@ -162,6 +173,146 @@ void BackendTests::ntpCodecRejectsInvalidResponse()
     wrongVersion[0] = static_cast<char>((wrongVersion.at(0) & 0xC7) | (3 << 3));
     context.sourceAddress = QHostAddress::LocalHost;
     QVERIFY(!NtpCodec::decodeAndValidate(wrongVersion, context));
+}
+
+void BackendTests::ntpSocketFamilySelectionIsDeterministic()
+{
+    const NtpSocketAvailability both{true, true};
+    QCOMPARE(ntpSocketFamilyForAddress(QHostAddress(QStringLiteral("192.0.2.10")), both),
+             NtpSocketFamily::IPv4);
+    QCOMPARE(ntpSocketFamilyForAddress(QHostAddress(QStringLiteral("2001:db8::10")), both),
+             NtpSocketFamily::IPv6);
+
+    const QHostAddress mapped(QStringLiteral("::ffff:192.0.2.10"));
+    QCOMPARE(ntpSocketFamilyForAddress(mapped, both), NtpSocketFamily::IPv4);
+    QVERIFY(ntpAddressesEquivalent(mapped, QHostAddress(QStringLiteral("192.0.2.10"))));
+    QCOMPARE(ntpSocketFamilyForAddress(QHostAddress(QStringLiteral("192.0.2.10")), {false, true}),
+             NtpSocketFamily::Unavailable);
+    QCOMPARE(ntpSocketFamilyForAddress(QHostAddress(QStringLiteral("2001:db8::10")), {true, false}),
+             NtpSocketFamily::Unavailable);
+}
+
+void BackendTests::ntpFailureDiagnosticIsStable()
+{
+    const NtpFailure failure{NtpFailureKind::NoValidSource, 3, 1, 2, 4, 5, 1, 3, 2};
+    QCOMPARE(ntpFailureDiagnostic(failure),
+             QStringLiteral("category=no-valid-source attempts=3 invalid=1 dns=2 send=4 socket=5 bind=1 timeout=3 family=2"));
+}
+
+namespace {
+
+ServerEndpoint loopbackEndpoint(const QHostAddress &address, const quint16 port)
+{
+    ServerEndpoint endpoint;
+    endpoint.host = address.toString();
+    endpoint.port = port;
+    endpoint.literalAddress = true;
+    endpoint.original = address.protocol() == QAbstractSocket::IPv6Protocol
+        ? QStringLiteral("[%1]:%2").arg(endpoint.host).arg(port)
+        : QStringLiteral("%1:%2").arg(endpoint.host).arg(port);
+    return endpoint;
+}
+
+void installFakeNtpResponder(QUdpSocket *server)
+{
+    QObject::connect(server, &QUdpSocket::readyRead, server, [server] {
+        while (server->hasPendingDatagrams()) {
+            QByteArray requestData(static_cast<int>(server->pendingDatagramSize()), Qt::Uninitialized);
+            QHostAddress peerAddress;
+            quint16 peerPort = 0;
+            if (server->readDatagram(requestData.data(), requestData.size(), &peerAddress, &peerPort) < 0) {
+                continue;
+            }
+            const Result<NtpPacket> request = NtpCodec::decodePacket(requestData);
+            if (!request) {
+                continue;
+            }
+            NtpPacket response;
+            response.leapIndicator = 0;
+            response.version = request.value().version;
+            response.mode = 4;
+            response.stratum = 2;
+            response.originateTimestamp = request.value().transmitTimestamp;
+            const QDateTime now = QDateTime::currentDateTimeUtc();
+            response.receiveTimestamp = NtpCodec::fromDateTime(now);
+            response.transmitTimestamp = NtpCodec::fromDateTime(now.addMSecs(1));
+            const Result<QByteArray> encoded = NtpCodec::encodePacket(response);
+            if (encoded) {
+                server->writeDatagram(encoded.value(), peerAddress, peerPort);
+            }
+        }
+    });
+}
+
+NtpQueryResult waitForNtpResult(NtpClient *client,
+                                const ServerEndpoint &endpoint,
+                                const NtpQueryOptions &options,
+                                const int maximumWaitMs)
+{
+    QSignalSpy spy(client, &NtpClient::finished);
+    const Result<quint64> started = client->start({endpoint}, options);
+    if (!started || !spy.wait(maximumWaitMs) || spy.isEmpty()) {
+        return {false, {}, {NtpFailureKind::InternalError}};
+    }
+    return spy.takeFirst().at(1).value<NtpQueryResult>();
+}
+
+} // namespace
+
+void BackendTests::ntpClientReceivesFromLocalIpv4Server()
+{
+    QUdpSocket server;
+    QVERIFY(server.bind(QHostAddress::LocalHost, 0));
+    installFakeNtpResponder(&server);
+
+    NtpQueryOptions options;
+    options.perSourceTimeoutMs = 300;
+    options.globalTimeoutMs = 1000;
+    options.versions = {4};
+    NtpClient client;
+    const NtpQueryResult result = waitForNtpResult(
+        &client, loopbackEndpoint(QHostAddress::LocalHost, server.localPort()), options, 2000);
+    QVERIFY(result.succeeded);
+    QCOMPARE(result.sample.remoteAddress, QHostAddress(QHostAddress::LocalHost).toString());
+}
+
+void BackendTests::ntpClientTimesOutUsingWorkerTimer()
+{
+    QUdpSocket silentServer;
+    QVERIFY(silentServer.bind(QHostAddress::LocalHost, 0));
+
+    NtpQueryOptions options;
+    options.perSourceTimeoutMs = 150;
+    options.globalTimeoutMs = 700;
+    options.versions = {4};
+    QElapsedTimer elapsed;
+    elapsed.start();
+    NtpClient client;
+    const NtpQueryResult result = waitForNtpResult(
+        &client, loopbackEndpoint(QHostAddress::LocalHost, silentServer.localPort()), options, 1600);
+    QVERIFY(!result.succeeded);
+    QVERIFY(result.failure.kind != NtpFailureKind::InternalError);
+    QVERIFY(result.failure.timeouts >= 1);
+    QVERIFY(elapsed.elapsed() >= options.perSourceTimeoutMs - 30);
+    QVERIFY(elapsed.elapsed() < 1200);
+}
+
+void BackendTests::ntpClientReceivesFromLocalIpv6ServerWhenAvailable()
+{
+    QUdpSocket server;
+    if (!server.bind(QHostAddress::LocalHostIPv6, 0)) {
+        QSKIP("IPv6 loopback is unavailable in this test environment");
+    }
+    installFakeNtpResponder(&server);
+
+    NtpQueryOptions options;
+    options.perSourceTimeoutMs = 300;
+    options.globalTimeoutMs = 1000;
+    options.versions = {4};
+    NtpClient client;
+    const NtpQueryResult result = waitForNtpResult(
+        &client, loopbackEndpoint(QHostAddress::LocalHostIPv6, server.localPort()), options, 2000);
+    QVERIFY(result.succeeded);
 }
 
 void BackendTests::trustedClockAdvancesAndBecomesStale()

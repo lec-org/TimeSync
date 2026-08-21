@@ -148,7 +148,10 @@ Result<NtpSample> CliRunner::acquireFresh(const AppConfig &config) const
     }
     if (!queryResult.succeeded) {
         const ErrorCode code = errorCodeForNtpFailure(queryResult.failure.kind);
-        return Result<NtpSample>::failure(runnerError(code, QStringLiteral("NTP acquisition failed")));
+        return Result<NtpSample>::failure(
+            runnerError(code,
+                        QStringLiteral("NTP failure: %1; check DNS and outbound UDP/123")
+                            .arg(ntpFailureDiagnostic(queryResult.failure))));
     }
     return Result<NtpSample>::success(queryResult.sample);
 }
@@ -181,7 +184,7 @@ ExitCode CliRunner::runSync(const ParsedCommand &command,
 {
     const Result<NtpSample> acquired = acquireFresh(config);
     if (!acquired) {
-        err << "Time acquisition failed.\n";
+        err << "Time acquisition failed: " << acquired.error().detail << "\n";
         return exitCodeForError(acquired.error().code);
     }
     out << "Source: " << acquired.value().source << "\n"

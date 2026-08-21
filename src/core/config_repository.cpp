@@ -56,6 +56,8 @@ QStringList ConfigRepository::defaultServers()
         QStringLiteral("ntp5.aliyun.com"),
         QStringLiteral("ntp6.aliyun.com"),
         QStringLiteral("ntp7.aliyun.com"),
+        QStringLiteral("ntp1.nim.ac.cn"),
+        QStringLiteral("ntp2.nim.ac.cn"),
         QStringLiteral("s1a.time.edu.cn"),
         QStringLiteral("s1b.time.edu.cn"),
         QStringLiteral("s1c.time.edu.cn"),

@@ -1,7 +1,12 @@
 # Qt/CMake build output
 build/
+build-static/
+build-static-*/
 out/
 cmake-build-*/
+dist/
+.qt-source-cache/
+qt-everywhere-src-*.zip
 
 # Generated local configuration and deployment files
 config.ini

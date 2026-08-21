@@ -21,11 +21,37 @@ enum class NtpFailureKind {
     InternalError,
 };
 
+enum class NtpSocketFamily {
+    Unavailable = 0,
+    IPv4,
+    IPv6,
+};
+
+struct NtpSocketAvailability {
+    bool ipv4 = false;
+    bool ipv6 = false;
+};
+
 struct NtpFailure {
     NtpFailureKind kind = NtpFailureKind::None;
     int sourcesTried = 0;
     int invalidResponses = 0;
+    int dnsFailures = 0;
+    int sendFailures = 0;
+    int socketErrors = 0;
+    int bindFailures = 0;
+    int timeouts = 0;
+    int unavailableFamilies = 0;
 };
+
+[[nodiscard]] QHostAddress normalizedNtpAddress(const QHostAddress &address);
+[[nodiscard]] bool ntpAddressesEquivalent(const QHostAddress &left,
+                                          const QHostAddress &right);
+[[nodiscard]] NtpSocketFamily ntpSocketFamilyForAddress(
+    const QHostAddress &address,
+    const NtpSocketAvailability &availability) noexcept;
+[[nodiscard]] QString ntpFailureKindName(NtpFailureKind kind);
+[[nodiscard]] QString ntpFailureDiagnostic(const NtpFailure &failure);
 
 struct NtpQueryResult {
     bool succeeded = false;

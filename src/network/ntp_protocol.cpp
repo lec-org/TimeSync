@@ -142,7 +142,7 @@ Result<NtpPacket> NtpCodec::decodeAndValidate(const QByteArray &datagram,
     if (!context.expectedAddresses.isEmpty()) {
         bool addressMatched = false;
         for (const QHostAddress &expected : context.expectedAddresses) {
-            if (expected == context.sourceAddress) {
+            if (expected.isEqual(context.sourceAddress, QHostAddress::ConvertV4MappedToIPv4)) {
                 addressMatched = true;
                 break;
             }

@@ -1,4 +1,4 @@
-if(WIN32)
+if(WIN32 AND NOT TIMESYNC_STATIC_QT)
     find_program(TIMESYNC_WINDEPLOYQT
         NAMES windeployqt windeployqt.exe
         HINTS
