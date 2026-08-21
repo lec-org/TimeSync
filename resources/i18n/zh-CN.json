@@ -27,6 +27,12 @@
   "reference.detail.networkError": "无法连接时间来源，请检查网络后刷新。",
   "reference.detail.serverError": "没有已配置的时间来源响应，请检查服务器列表后重试。",
   "reference.detail.error": "标准时间获取失败，请重试。",
+  "system.heading": "Windows 系统时间",
+  "system.localZone": "本地时区",
+  "system.timezone": "本地时间 · %1 (%2)",
+  "comparison.aligned": "系统时间与标准时间在当前显示秒内一致。",
+  "comparison.systemAhead": "系统时间约比标准时间快 %1 秒。",
+  "comparison.systemBehind": "系统时间约比标准时间慢 %1 秒。",
 
   "age.justNow": "刚刚",
   "age.seconds": "%1 秒前",

@@ -27,6 +27,12 @@
   "reference.detail.networkError": "The time sources could not be reached. Check the network and refresh.",
   "reference.detail.serverError": "No configured time source responded. Review the server list and try again.",
   "reference.detail.error": "Standard time could not be fetched. Try again.",
+  "system.heading": "Windows system time",
+  "system.localZone": "Local time zone",
+  "system.timezone": "Local time · %1 (%2)",
+  "comparison.aligned": "System time matches the standard time to the displayed second.",
+  "comparison.systemAhead": "System time is about %1 sec ahead of standard time.",
+  "comparison.systemBehind": "System time is about %1 sec behind standard time.",
 
   "age.justNow": "Just now",
   "age.seconds": "%1 sec ago",

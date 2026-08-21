@@ -9,6 +9,7 @@
 #include <QCheckBox>
 #include <QColor>
 #include <QComboBox>
+#include <QDateTime>
 #include <QDialog>
 #include <QFrame>
 #include <QGridLayout>
@@ -82,8 +83,8 @@ MainWindow::MainWindow(QWidget *parent)
     qRegisterMetaType<ScheduleState>();
     qRegisterMetaType<OperationResult>();
 
-    setMinimumSize(760, 560);
-    resize(980, 720);
+    setMinimumSize(600, 440);
+    resize(820, 600);
     buildUi();
     applyStyle();
     retranslateUi();
@@ -238,16 +239,16 @@ void MainWindow::buildUi()
 
     headerFrame_ = new QFrame(central);
     headerFrame_->setObjectName(QStringLiteral("headerFrame"));
-    headerFrame_->setMinimumHeight(64);
+    headerFrame_->setMinimumHeight(56);
     auto *headerLayout = new QHBoxLayout(headerFrame_);
-    headerLayout->setContentsMargins(24, 12, 24, 12);
-    headerLayout->setSpacing(12);
+    headerLayout->setContentsMargins(18, 8, 18, 8);
+    headerLayout->setSpacing(10);
     appTitleLabel_ = new QLabel(headerFrame_);
     appTitleLabel_->setObjectName(QStringLiteral("appTitle"));
     languageLabel_ = new QLabel(headerFrame_);
     languageLabel_->setObjectName(QStringLiteral("fieldLabel"));
     languageCombo_ = new QComboBox(headerFrame_);
-    languageCombo_->setMinimumSize(132, 40);
+    languageCombo_->setMinimumSize(124, 40);
     languageLabel_->setBuddy(languageCombo_);
     headerLayout->addWidget(appTitleLabel_);
     headerLayout->addStretch(1);
@@ -262,55 +263,89 @@ void MainWindow::buildUi()
     auto *scrollContent = new QWidget(contentScrollArea_);
     scrollContent->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     auto *shellLayout = new QHBoxLayout(scrollContent);
-    shellLayout->setContentsMargins(16, 0, 16, 0);
+    shellLayout->setContentsMargins(12, 0, 12, 0);
     shellLayout->setSpacing(0);
     contentWidget_ = new QWidget(scrollContent);
-    contentWidget_->setMaximumWidth(1240);
+    contentWidget_->setMaximumWidth(1040);
     contentWidget_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     auto *contentLayout = new QVBoxLayout(contentWidget_);
-    contentLayout->setContentsMargins(8, 20, 8, 24);
-    contentLayout->setSpacing(16);
-
-    operationBanner_ = new QFrame(contentWidget_);
-    operationBanner_->setObjectName(QStringLiteral("operationBanner"));
-    operationBanner_->setVisible(false);
-    auto *bannerLayout = new QHBoxLayout(operationBanner_);
-    bannerLayout->setContentsMargins(12, 8, 8, 8);
-    bannerLayout->setSpacing(8);
-    operationIconLabel_ = new QLabel(operationBanner_);
-    operationIconLabel_->setFixedSize(20, 20);
-    operationIconLabel_->setAlignment(Qt::AlignCenter);
-    operationTextLabel_ = new QLabel(operationBanner_);
-    operationTextLabel_->setWordWrap(true);
-    dismissBannerButton_ = new QPushButton(operationBanner_);
-    dismissBannerButton_->setObjectName(QStringLiteral("bannerDismissButton"));
-    dismissBannerButton_->setFlat(true);
-    dismissBannerButton_->setIcon(style()->standardIcon(QStyle::SP_DialogCloseButton));
-    dismissBannerButton_->setIconSize(QSize(16, 16));
-    dismissBannerButton_->setFixedSize(40, 40);
-    bannerLayout->addWidget(operationIconLabel_);
-    bannerLayout->addWidget(operationTextLabel_, 1);
-    bannerLayout->addWidget(dismissBannerButton_);
-    contentLayout->addWidget(operationBanner_);
+    contentLayout->setContentsMargins(6, 12, 6, 16);
+    contentLayout->setSpacing(12);
 
     referencePanel_ = new QFrame(contentWidget_);
     referencePanel_->setObjectName(QStringLiteral("surfacePanel"));
     auto *referenceLayout = new QVBoxLayout(referencePanel_);
-    referenceLayout->setContentsMargins(24, 14, 24, 16);
-    referenceLayout->setSpacing(5);
-    referenceHeadingLabel_ = new QLabel(referencePanel_);
+    referenceLayout->setContentsMargins(18, 12, 18, 12);
+    referenceLayout->setSpacing(4);
+
+    clockGrid_ = new QGridLayout;
+    clockGrid_->setContentsMargins(0, 0, 0, 0);
+    clockGrid_->setHorizontalSpacing(10);
+    clockGrid_->setVerticalSpacing(8);
+
+    standardClockFrame_ = new QFrame(referencePanel_);
+    standardClockFrame_->setObjectName(QStringLiteral("standardClock"));
+    auto *standardClockLayout = new QVBoxLayout(standardClockFrame_);
+    standardClockLayout->setContentsMargins(14, 9, 14, 10);
+    standardClockLayout->setSpacing(1);
+    referenceHeadingLabel_ = new QLabel(standardClockFrame_);
     referenceHeadingLabel_->setObjectName(QStringLiteral("sectionHeading"));
     referenceHeadingLabel_->setAlignment(Qt::AlignHCenter);
-    timeLabel_ = new QLabel(referencePanel_);
+    timeLabel_ = new QLabel(standardClockFrame_);
     timeLabel_->setObjectName(QStringLiteral("timeLabel"));
     timeLabel_->setAlignment(Qt::AlignCenter);
-    timeLabel_->setMinimumHeight(58);
-    dateLabel_ = new QLabel(referencePanel_);
+    timeLabel_->setMinimumHeight(44);
+    dateLabel_ = new QLabel(standardClockFrame_);
     dateLabel_->setObjectName(QStringLiteral("dateLabel"));
     dateLabel_->setAlignment(Qt::AlignCenter);
-    timezoneLabel_ = new QLabel(referencePanel_);
+    dateLabel_->setWordWrap(true);
+    timezoneLabel_ = new QLabel(standardClockFrame_);
     timezoneLabel_->setObjectName(QStringLiteral("secondaryText"));
     timezoneLabel_->setAlignment(Qt::AlignCenter);
+    timezoneLabel_->setWordWrap(true);
+    standardClockLayout->addWidget(referenceHeadingLabel_);
+    standardClockLayout->addWidget(timeLabel_);
+    standardClockLayout->addWidget(dateLabel_);
+    standardClockLayout->addWidget(timezoneLabel_);
+
+    systemClockFrame_ = new QFrame(referencePanel_);
+    systemClockFrame_->setObjectName(QStringLiteral("systemClock"));
+    auto *systemClockLayout = new QVBoxLayout(systemClockFrame_);
+    systemClockLayout->setContentsMargins(14, 9, 14, 10);
+    systemClockLayout->setSpacing(1);
+    systemHeadingLabel_ = new QLabel(systemClockFrame_);
+    systemHeadingLabel_->setObjectName(QStringLiteral("sectionHeading"));
+    systemHeadingLabel_->setAlignment(Qt::AlignHCenter);
+    systemTimeLabel_ = new QLabel(systemClockFrame_);
+    systemTimeLabel_->setObjectName(QStringLiteral("systemTimeLabel"));
+    systemTimeLabel_->setAlignment(Qt::AlignCenter);
+    systemTimeLabel_->setMinimumHeight(44);
+    systemDateLabel_ = new QLabel(systemClockFrame_);
+    systemDateLabel_->setObjectName(QStringLiteral("dateLabel"));
+    systemDateLabel_->setAlignment(Qt::AlignCenter);
+    systemDateLabel_->setWordWrap(true);
+    systemTimezoneLabel_ = new QLabel(systemClockFrame_);
+    systemTimezoneLabel_->setObjectName(QStringLiteral("secondaryText"));
+    systemTimezoneLabel_->setAlignment(Qt::AlignCenter);
+    systemTimezoneLabel_->setWordWrap(true);
+    systemClockLayout->addWidget(systemHeadingLabel_);
+    systemClockLayout->addWidget(systemTimeLabel_);
+    systemClockLayout->addWidget(systemDateLabel_);
+    systemClockLayout->addWidget(systemTimezoneLabel_);
+
+    clockGrid_->addWidget(standardClockFrame_, 0, 0);
+    clockGrid_->addWidget(systemClockFrame_, 0, 1);
+    clockGrid_->setColumnStretch(0, 1);
+    clockGrid_->setColumnStretch(1, 1);
+    referenceLayout->addLayout(clockGrid_);
+
+    timeDifferenceLabel_ = new QLabel(referencePanel_);
+    timeDifferenceLabel_->setObjectName(QStringLiteral("comparisonText"));
+    timeDifferenceLabel_->setAlignment(Qt::AlignCenter);
+    timeDifferenceLabel_->setWordWrap(true);
+    timeDifferenceLabel_->setVisible(false);
+    referenceLayout->addWidget(timeDifferenceLabel_);
+
     statusBadge_ = new QLabel(referencePanel_);
     statusBadge_->setObjectName(QStringLiteral("statusBadge"));
     statusBadge_->setAlignment(Qt::AlignCenter);
@@ -320,18 +355,13 @@ void MainWindow::buildUi()
     referenceDetailLabel_->setAlignment(Qt::AlignCenter);
     referenceDetailLabel_->setWordWrap(true);
 
-    referenceLayout->addWidget(referenceHeadingLabel_);
-    referenceLayout->addWidget(timeLabel_);
-    referenceLayout->addWidget(dateLabel_);
-    referenceLayout->addWidget(timezoneLabel_);
-    referenceLayout->addSpacing(2);
     referenceLayout->addWidget(statusBadge_, 0, Qt::AlignHCenter);
     referenceLayout->addWidget(referenceDetailLabel_);
 
     auto *metadataLayout = new QGridLayout;
-    metadataLayout->setContentsMargins(0, 6, 0, 2);
-    metadataLayout->setHorizontalSpacing(28);
-    metadataLayout->setVerticalSpacing(3);
+    metadataLayout->setContentsMargins(0, 4, 0, 1);
+    metadataLayout->setHorizontalSpacing(16);
+    metadataLayout->setVerticalSpacing(2);
     sourceCaptionLabel_ = new QLabel(referencePanel_);
     sourceCaptionLabel_->setObjectName(QStringLiteral("metaCaption"));
     sourceValueLabel_ = new QLabel(referencePanel_);
@@ -378,19 +408,42 @@ void MainWindow::buildUi()
     referenceButtonLayout->addWidget(syncButton_);
     referenceButtonLayout->addStretch(1);
     referenceLayout->addLayout(referenceButtonLayout);
+
+    operationBanner_ = new QFrame(referencePanel_);
+    operationBanner_->setObjectName(QStringLiteral("operationBanner"));
+    operationBanner_->setVisible(false);
+    auto *bannerLayout = new QHBoxLayout(operationBanner_);
+    bannerLayout->setContentsMargins(6, 3, 0, 3);
+    bannerLayout->setSpacing(6);
+    operationIconLabel_ = new QLabel(operationBanner_);
+    operationIconLabel_->setFixedSize(18, 18);
+    operationIconLabel_->setAlignment(Qt::AlignCenter);
+    operationTextLabel_ = new QLabel(operationBanner_);
+    operationTextLabel_->setObjectName(QStringLiteral("noticeText"));
+    operationTextLabel_->setWordWrap(true);
+    dismissBannerButton_ = new QPushButton(operationBanner_);
+    dismissBannerButton_->setObjectName(QStringLiteral("bannerDismissButton"));
+    dismissBannerButton_->setFlat(true);
+    dismissBannerButton_->setIcon(style()->standardIcon(QStyle::SP_DialogCloseButton));
+    dismissBannerButton_->setIconSize(QSize(16, 16));
+    dismissBannerButton_->setFixedSize(40, 40);
+    bannerLayout->addWidget(operationIconLabel_);
+    bannerLayout->addWidget(operationTextLabel_, 1);
+    bannerLayout->addWidget(dismissBannerButton_);
+    referenceLayout->addWidget(operationBanner_);
     contentLayout->addWidget(referencePanel_);
 
     lowerGrid_ = new QGridLayout;
     lowerGrid_->setContentsMargins(0, 0, 0, 0);
-    lowerGrid_->setHorizontalSpacing(16);
-    lowerGrid_->setVerticalSpacing(16);
+    lowerGrid_->setHorizontalSpacing(12);
+    lowerGrid_->setVerticalSpacing(12);
 
     schedulePanel_ = new QFrame(contentWidget_);
     schedulePanel_->setObjectName(QStringLiteral("surfacePanel"));
     auto *scheduleLayout = new QGridLayout(schedulePanel_);
-    scheduleLayout->setContentsMargins(20, 18, 20, 20);
-    scheduleLayout->setHorizontalSpacing(12);
-    scheduleLayout->setVerticalSpacing(8);
+    scheduleLayout->setContentsMargins(16, 13, 16, 14);
+    scheduleLayout->setHorizontalSpacing(10);
+    scheduleLayout->setVerticalSpacing(6);
     scheduleHeadingLabel_ = new QLabel(schedulePanel_);
     scheduleHeadingLabel_->setObjectName(QStringLiteral("sectionHeading"));
     scheduleEnabledCheck_ = new QCheckBox(schedulePanel_);
@@ -403,8 +456,8 @@ void MainWindow::buildUi()
     intervalSpinBox_->setButtonSymbols(QAbstractSpinBox::NoButtons);
     intervalSpinBox_->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     intervalSpinBox_->setMinimumHeight(40);
-    intervalSpinBox_->setMinimumWidth(172);
-    intervalSpinBox_->setMaximumWidth(224);
+    intervalSpinBox_->setMinimumWidth(144);
+    intervalSpinBox_->setMaximumWidth(200);
     intervalLabel_->setBuddy(intervalSpinBox_);
     scheduleStatusCaptionLabel_ = new QLabel(schedulePanel_);
     scheduleStatusCaptionLabel_->setObjectName(QStringLiteral("fieldLabel"));
@@ -436,8 +489,8 @@ void MainWindow::buildUi()
     serversPanel_ = new QFrame(contentWidget_);
     serversPanel_->setObjectName(QStringLiteral("surfacePanel"));
     auto *serversLayout = new QVBoxLayout(serversPanel_);
-    serversLayout->setContentsMargins(20, 18, 20, 20);
-    serversLayout->setSpacing(8);
+    serversLayout->setContentsMargins(16, 13, 16, 14);
+    serversLayout->setSpacing(6);
     auto *serverHeadingLayout = new QHBoxLayout;
     serverHeadingLayout->setSpacing(8);
     serversHeadingLabel_ = new QLabel(serversPanel_);
@@ -452,7 +505,7 @@ void MainWindow::buildUi()
     serverList_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     serverList_->setSelectionMode(QAbstractItemView::NoSelection);
     serverList_->setFocusPolicy(Qt::StrongFocus);
-    serverList_->setMinimumHeight(96);
+    serverList_->setMinimumHeight(82);
     serverList_->setUniformItemSizes(true);
     serverList_->setTextElideMode(Qt::ElideMiddle);
     serverList_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -575,23 +628,38 @@ void MainWindow::applyStyle()
             border: 1px solid #DDE2E8;
             border-radius: 8px;
         }
+        QFrame#standardClock {
+            background: #F6F8FB;
+            border: 1px solid #DDE2E8;
+            border-radius: 6px;
+        }
+        QFrame#systemClock {
+            background: #FFFFFF;
+            border: 1px solid #E6E9ED;
+            border-radius: 6px;
+        }
         QLabel#sectionHeading {
             color: #172033;
-            font-size: 16px;
+            font-size: 15px;
             font-weight: 600;
         }
-        QLabel#timeLabel {
+        QLabel#timeLabel, QLabel#systemTimeLabel {
             color: #111827;
             font-family: "Cascadia Mono", "Consolas", monospace;
-            font-size: 48px;
+            font-size: 34px;
             font-weight: 600;
         }
+        QLabel#systemTimeLabel { color: #344054; }
         QLabel#dateLabel {
             color: #344054;
-            font-size: 16px;
+            font-size: 14px;
             font-weight: 500;
         }
         QLabel#secondaryText { color: #667085; }
+        QLabel#comparisonText {
+            color: #667085;
+            font-size: 12px;
+        }
         QLabel#metaCaption {
             color: #667085;
             font-size: 12px;
@@ -622,12 +690,11 @@ void MainWindow::applyStyle()
         QLabel#statusBadge[tone="warning"] { color: #8A4B08; background: #FFF2D8; }
         QLabel#statusBadge[tone="error"] { color: #A61B12; background: #FDEBEA; }
         QFrame#operationBanner {
-            border: 1px solid;
-            border-radius: 6px;
+            background: transparent;
+            border: 0;
+            border-top: 1px solid #E6E9ED;
         }
-        QFrame#operationBanner[tone="success"] { background: #ECF8F1; border-color: #A8DDBE; }
-        QFrame#operationBanner[tone="warning"] { background: #FFF6E5; border-color: #EBCB8B; }
-        QFrame#operationBanner[tone="error"] { background: #FDEEEE; border-color: #E9B4B0; }
+        QLabel#noticeText { color: #667085; font-size: 12px; }
         QPushButton, QToolButton {
             min-height: 40px;
             padding: 0 14px;
@@ -679,7 +746,7 @@ void MainWindow::applyStyle()
             selection-color: #172033;
         }
         QLineEdit, QSpinBox, QComboBox { padding: 0 10px; }
-        QSpinBox { min-width: 172px; }
+        QSpinBox { min-width: 144px; }
         QLineEdit[error="true"] { border: 2px solid #B42318; }
         QListWidget { padding: 4px; outline: 0; }
         QListWidget::item {
@@ -729,6 +796,7 @@ void MainWindow::retranslateUi()
     dismissBannerButton_->setAccessibleName(UiStrings::text(QStringLiteral("action.dismiss")));
     referenceHeadingLabel_->setText(UiStrings::text(QStringLiteral("reference.heading")));
     timezoneLabel_->setText(UiStrings::text(QStringLiteral("reference.timezone")));
+    systemHeadingLabel_->setText(UiStrings::text(QStringLiteral("system.heading")));
     sourceCaptionLabel_->setText(UiStrings::text(QStringLiteral("reference.source")));
     statusCaptionLabel_->setText(UiStrings::text(QStringLiteral("reference.status")));
     calibrationCaptionLabel_->setText(UiStrings::text(QStringLiteral("reference.lastCalibration")));
@@ -773,10 +841,16 @@ void MainWindow::retranslateUi()
 
 void MainWindow::updateClockDisplay()
 {
+    const QDateTime systemTime = QDateTime::currentDateTime();
+    systemTimeLabel_->setText(systemTime.toString(QStringLiteral("HH:mm:ss")));
+    systemDateLabel_->setText(formattedDate(systemTime));
+    systemTimezoneLabel_->setText(systemTimeZoneText(systemTime));
+
     if (!referenceState_.hasReferenceTime || !referenceState_.beijingTime.isValid()) {
         timeLabel_->setText(QStringLiteral("--:--:--"));
         dateLabel_->setText(UiStrings::text(QStringLiteral("reference.dateUnavailable")));
         calibrationValueLabel_->setText(UiStrings::text(QStringLiteral("reference.never")));
+        timeDifferenceLabel_->setVisible(false);
         return;
     }
 
@@ -785,14 +859,10 @@ void MainWindow::updateClockDisplay()
                                       .addMSecs(elapsedMilliseconds)
                                       .toOffsetFromUtc(BeijingUtcOffsetSeconds);
     timeLabel_->setText(beijingTime.toString(QStringLiteral("HH:mm:ss")));
-
-    if (UiStrings::languageTag() == QStringLiteral("zh-CN")) {
-        const QLocale locale(QLocale::Chinese, QLocale::China);
-        dateLabel_->setText(locale.toString(beijingTime.date(), QStringLiteral("yyyy年M月d日 dddd")));
-    } else {
-        const QLocale locale(QLocale::English, QLocale::UnitedStates);
-        dateLabel_->setText(locale.toString(beijingTime.date(), QStringLiteral("dddd, MMMM d, yyyy")));
-    }
+    dateLabel_->setText(formattedDate(beijingTime));
+    timeDifferenceLabel_->setText(timeDifferenceText(systemTime.toMSecsSinceEpoch()
+                                                       - beijingTime.toMSecsSinceEpoch()));
+    timeDifferenceLabel_->setVisible(true);
 
     const qint64 ageSeconds = referenceState_.calibrationAgeSeconds < 0
         ? -1
@@ -891,14 +961,30 @@ void MainWindow::updateResponsiveLayout()
     }
 
     const int viewportWidth = contentScrollArea_->viewport()->width();
-    const int usableWidth = qMax(0, viewportWidth - 32);
-    contentWidget_->setMinimumWidth(qMin(1240, usableWidth));
+    const int usableWidth = qMax(0, viewportWidth - 24);
+    contentWidget_->setMinimumWidth(qMin(1040, usableWidth));
 
-    languageLabel_->setVisible(width() >= 820);
-    const bool compact = width() < 920;
+    languageLabel_->setVisible(width() >= 720);
+    const bool clocksStacked = width() < 700;
+    const bool compact = width() < 780;
     if (lowerGrid_->property("compact").toBool() == compact
+        && clockGrid_->property("stacked").toBool() == clocksStacked
         && lowerGrid_->property("initialized").toBool()) {
         return;
+    }
+
+    clockGrid_->removeWidget(standardClockFrame_);
+    clockGrid_->removeWidget(systemClockFrame_);
+    if (clocksStacked) {
+        clockGrid_->addWidget(standardClockFrame_, 0, 0);
+        clockGrid_->addWidget(systemClockFrame_, 1, 0);
+        clockGrid_->setColumnStretch(0, 1);
+        clockGrid_->setColumnStretch(1, 0);
+    } else {
+        clockGrid_->addWidget(standardClockFrame_, 0, 0);
+        clockGrid_->addWidget(systemClockFrame_, 0, 1);
+        clockGrid_->setColumnStretch(0, 1);
+        clockGrid_->setColumnStretch(1, 1);
     }
 
     lowerGrid_->removeWidget(schedulePanel_);
@@ -908,14 +994,15 @@ void MainWindow::updateResponsiveLayout()
         lowerGrid_->addWidget(serversPanel_, 1, 0);
         lowerGrid_->setColumnStretch(0, 1);
         lowerGrid_->setColumnStretch(1, 0);
-        serverList_->setMinimumHeight(88);
+        serverList_->setMinimumHeight(78);
     } else {
         lowerGrid_->addWidget(schedulePanel_, 0, 0);
         lowerGrid_->addWidget(serversPanel_, 0, 1);
         lowerGrid_->setColumnStretch(0, 1);
         lowerGrid_->setColumnStretch(1, 1);
-        serverList_->setMinimumHeight(96);
+        serverList_->setMinimumHeight(82);
     }
+    clockGrid_->setProperty("stacked", clocksStacked);
     lowerGrid_->setProperty("compact", compact);
     lowerGrid_->setProperty("initialized", true);
 }
@@ -1074,6 +1161,50 @@ QString MainWindow::calibrationAgeText(qint64 totalSeconds) const
     const qint64 days = totalHours / 24;
     const qint64 remainingHours = totalHours % 24;
     return UiStrings::text(QStringLiteral("age.days")).arg(days).arg(remainingHours);
+}
+
+QString MainWindow::formattedDate(const QDateTime &dateTime) const
+{
+    if (UiStrings::languageTag() == QStringLiteral("zh-CN")) {
+        const QLocale locale(QLocale::Chinese, QLocale::China);
+        return locale.toString(dateTime.date(), QStringLiteral("yyyy年M月d日 dddd"));
+    }
+
+    const QLocale locale(QLocale::English, QLocale::UnitedStates);
+    return locale.toString(dateTime.date(), QStringLiteral("ddd, MMM d, yyyy"));
+}
+
+QString MainWindow::systemTimeZoneText(const QDateTime &systemTime) const
+{
+    QString zoneName = systemTime.timeZoneAbbreviation().trimmed();
+    if (zoneName.isEmpty()) {
+        zoneName = UiStrings::text(QStringLiteral("system.localZone"));
+    }
+
+    const int offsetSeconds = systemTime.offsetFromUtc();
+    const QChar sign = offsetSeconds < 0 ? QLatin1Char('-') : QLatin1Char('+');
+    const int absoluteOffset = qAbs(offsetSeconds);
+    const QString offsetText = QStringLiteral("UTC%1%2:%3")
+                                   .arg(sign)
+                                   .arg(absoluteOffset / 3600, 2, 10, QLatin1Char('0'))
+                                   .arg((absoluteOffset % 3600) / 60, 2, 10, QLatin1Char('0'));
+    return UiStrings::text(QStringLiteral("system.timezone"))
+        .arg(zoneName, offsetText);
+}
+
+QString MainWindow::timeDifferenceText(qint64 differenceMilliseconds) const
+{
+    const qint64 roundedSeconds = differenceMilliseconds >= 0
+        ? (differenceMilliseconds + 500) / 1000
+        : -((-differenceMilliseconds + 500) / 1000);
+    if (roundedSeconds == 0) {
+        return UiStrings::text(QStringLiteral("comparison.aligned"));
+    }
+
+    const QString key = roundedSeconds > 0
+        ? QStringLiteral("comparison.systemAhead")
+        : QStringLiteral("comparison.systemBehind");
+    return UiStrings::text(key).arg(qAbs(roundedSeconds));
 }
 
 QString MainWindow::scheduleStatusText() const

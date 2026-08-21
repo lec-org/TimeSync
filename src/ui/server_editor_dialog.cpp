@@ -187,13 +187,13 @@ void ServerEditorDialog::showSaveError(const QString &message)
 void ServerEditorDialog::buildUi()
 {
     setModal(true);
-    setMinimumSize(560, 460);
-    resize(620, 500);
+    setMinimumSize(500, 400);
+    resize(560, 440);
     setObjectName(QStringLiteral("serverEditorDialog"));
 
     auto *rootLayout = new QVBoxLayout(this);
-    rootLayout->setContentsMargins(24, 24, 24, 20);
-    rootLayout->setSpacing(12);
+    rootLayout->setContentsMargins(18, 16, 18, 14);
+    rootLayout->setSpacing(9);
 
     addressLabel_ = new QLabel(this);
     addressLabel_->setObjectName(QStringLiteral("fieldLabel"));
@@ -217,7 +217,7 @@ void ServerEditorDialog::buildUi()
     serverList_ = new QListWidget(this);
     serverList_->setSelectionMode(QAbstractItemView::SingleSelection);
     serverList_->setAlternatingRowColors(false);
-    serverList_->setMinimumHeight(230);
+    serverList_->setMinimumHeight(190);
     listLayout->addWidget(serverList_, 1);
 
     auto *toolLayout = new QVBoxLayout;
@@ -247,7 +247,7 @@ void ServerEditorDialog::buildUi()
     validationLabel_ = new QLabel(this);
     validationLabel_->setObjectName(QStringLiteral("validationLabel"));
     validationLabel_->setWordWrap(true);
-    validationLabel_->setMinimumHeight(36);
+    validationLabel_->setMinimumHeight(30);
     rootLayout->addWidget(validationLabel_);
 
     auto *divider = new QFrame(this);

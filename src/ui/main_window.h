@@ -63,6 +63,9 @@ private:
     QString operationMessage(const OperationResult &result) const;
     QString referenceDetail() const;
     QString calibrationAgeText(qint64 totalSeconds) const;
+    QString formattedDate(const QDateTime &dateTime) const;
+    QString systemTimeZoneText(const QDateTime &systemTime) const;
+    QString timeDifferenceText(qint64 differenceMilliseconds) const;
     QString scheduleStatusText() const;
     void setTone(QWidget *widget, const QString &tone);
 
@@ -77,10 +80,18 @@ private:
     QPushButton *dismissBannerButton_ = nullptr;
 
     QFrame *referencePanel_ = nullptr;
+    QGridLayout *clockGrid_ = nullptr;
+    QFrame *standardClockFrame_ = nullptr;
+    QFrame *systemClockFrame_ = nullptr;
     QLabel *referenceHeadingLabel_ = nullptr;
     QLabel *timeLabel_ = nullptr;
     QLabel *dateLabel_ = nullptr;
     QLabel *timezoneLabel_ = nullptr;
+    QLabel *systemHeadingLabel_ = nullptr;
+    QLabel *systemTimeLabel_ = nullptr;
+    QLabel *systemDateLabel_ = nullptr;
+    QLabel *systemTimezoneLabel_ = nullptr;
+    QLabel *timeDifferenceLabel_ = nullptr;
     QLabel *statusBadge_ = nullptr;
     QLabel *referenceDetailLabel_ = nullptr;
     QLabel *sourceCaptionLabel_ = nullptr;
