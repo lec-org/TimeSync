@@ -97,7 +97,7 @@
   "operation.failure.remoteTime": "无法获取新的标准时间，系统时间未作修改。请检查网络后重试。",
   "operation.failure.server": "配置的时间服务器均不可用，系统时间未作修改。请检查服务器列表后重试。",
   "operation.failure.authorizationDenied": "系统授权已取消，系统时间未作修改。需要同步时，请重试并允许授权。",
-  "operation.failure.privilege": "无法修改 Windows 系统时间。请关闭程序，右键 TimeSync.exe，选择“以管理员身份运行”后重试。如果仍失败，请让管理员在“本地安全策略 > 用户权限分配 > 更改系统时间”中授予当前账户权限。",
+  "operation.failure.privilege": "Windows 没有授予 TimeSync 修改系统时间的权限。请重新打开程序，并在 Windows 弹窗中选择“是”。如果仍失败，请让管理员在“本地安全策略 > 用户权限分配 > 更改系统时间”中授予当前账户权限，然后注销并重新登录。",
   "operation.failure.systemRejected": "Windows 阻止了修改系统时间。设备或组织策略可能禁止此操作，请联系管理员检查“更改系统时间”权限。",
   "operation.failure.verification": "系统时间已尝试修改，但结果检查未通过。请重新同步。",
   "operation.failure.uncertain": "操作可能已经改变系统状态，但最终结果无法确定。请确认当前时间后再重试。",

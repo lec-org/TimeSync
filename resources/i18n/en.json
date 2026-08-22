@@ -97,7 +97,7 @@
   "operation.failure.remoteTime": "A new standard time could not be fetched, so the system time was not changed. Check the network and try again.",
   "operation.failure.server": "None of the configured time servers responded, so the system time was not changed. Review the server list and try again.",
   "operation.failure.authorizationDenied": "System authorization was cancelled, so the system time was not changed. Try again and allow authorization when you are ready.",
-  "operation.failure.privilege": "Windows could not change the system time. Close the program, right-click TimeSync.exe, select \"Run as administrator\", and try again. If it still fails, ask an administrator to grant your account the \"Change the system time\" user right under Local Security Policy > Local Policies > User Rights Assignment.",
+  "operation.failure.privilege": "Windows has not granted TimeSync permission to change the system time. Reopen the program and choose \"Yes\" in the Windows prompt. If it still fails, ask an administrator to grant your account the \"Change the system time\" user right under Local Security Policy > Local Policies > User Rights Assignment, then sign out and back in.",
   "operation.failure.systemRejected": "Windows blocked the system time change. A device or organization policy may prohibit this action. Contact an administrator to check the \"Change the system time\" user right.",
   "operation.failure.verification": "A system time change was attempted, but the result could not be verified. Run the sync again.",
   "operation.failure.uncertain": "The operation may have changed system state, but its final result is uncertain. Check the current time and try again when safe.",
