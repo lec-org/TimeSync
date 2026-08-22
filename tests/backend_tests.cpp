@@ -1,6 +1,7 @@
 #include "../src/cli/cli_parser.h"
 #include "../src/core/config_repository.h"
 #include "../src/core/operation_types.h"
+#include "../src/core/sync_coordinator.h"
 #include "../src/core/trusted_clock.h"
 #include "../src/network/ntp_client.h"
 #include "../src/network/ntp_protocol.h"
@@ -31,6 +32,7 @@ private slots:
     void ntpClientReceivesFromLocalIpv4Server();
     void ntpClientTimesOutUsingWorkerTimer();
     void ntpClientReceivesFromLocalIpv6ServerWhenAvailable();
+    void syncCoordinatorRejectsConcurrentRequests();
     void trustedClockAdvancesAndBecomesStale();
     void systemTimeFailureMappingsStayDistinct();
     void cliRejectsConflictsAndMapsExitCodes();
@@ -318,6 +320,23 @@ void BackendTests::ntpClientReceivesFromLocalIpv6ServerWhenAvailable()
     const NtpQueryResult result = waitForNtpResult(
         &client, loopbackEndpoint(QHostAddress::LocalHostIPv6, server.localPort()), options, 2000);
     QVERIFY(result.succeeded);
+}
+
+void BackendTests::syncCoordinatorRejectsConcurrentRequests()
+{
+    QUdpSocket silentServer;
+    QVERIFY(silentServer.bind(QHostAddress::LocalHost, 0));
+
+    AppConfig config = ConfigRepository::defaultConfig();
+    config.servers = {QStringLiteral("127.0.0.1:%1").arg(silentServer.localPort())};
+
+    SyncCoordinator coordinator;
+    const Result<quint64> first = coordinator.startRefresh(config);
+    QVERIFY(first);
+    const Result<quint64> repeated = coordinator.startSync(config, SyncMode::AuthorizedDirect);
+    QVERIFY(!repeated);
+    QCOMPARE(repeated.error().code, ErrorCode::Busy);
+    coordinator.cancel();
 }
 
 void BackendTests::trustedClockAdvancesAndBecomesStale()

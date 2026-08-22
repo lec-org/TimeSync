@@ -3,7 +3,7 @@
 #include "../platform/cross_process_mutex.h"
 #include "../platform/windows_system_clock.h"
 
-#include <QMetaObject>
+#include <QThread>
 
 #include <utility>
 
@@ -32,10 +32,9 @@ SyncCoordinator::~SyncCoordinator()
     if (mutationCancel_) {
         mutationCancel_->store(true, std::memory_order_relaxed);
     }
-    for (QThread *thread : std::as_const(mutationThreads_)) {
-        if (thread != nullptr && thread->isRunning()) {
-            thread->wait();
-        }
+    if (mutationThread_ != nullptr) {
+        disconnect(mutationThread_, nullptr, this, nullptr);
+        mutationThread_ = nullptr;
     }
 }
 
@@ -150,36 +149,36 @@ void SyncCoordinator::startSystemTimeMutation(const QDateTime &targetUtc, const 
     const quint64 generation = operationGeneration_;
     const OperationKind operation = operation_;
     const std::shared_ptr<std::atomic_bool> cancel = std::make_shared<std::atomic_bool>(false);
+    const std::shared_ptr<MutationResult> mutation = std::make_shared<MutationResult>();
     mutationCancel_ = cancel;
 
     QThread *thread = QThread::create(
-        [this, generation, operation, source, targetUtc, cancel] {
-            MutationResult mutation;
+        [targetUtc, cancel, mutation] {
             CrossProcessMutex mutationMutex;
-            mutation.acquired = mutationMutex.acquire(CrossProcessMutex::DefaultWaitMs);
-            if (!mutation.acquired && cancel->load(std::memory_order_relaxed)) {
-                mutation.acquired = Result<void>::failure(
+            mutation->acquired = mutationMutex.acquire(CrossProcessMutex::DefaultWaitMs);
+            if (!mutation->acquired && cancel->load(std::memory_order_relaxed)) {
+                mutation->acquired = Result<void>::failure(
                     {ErrorCode::Cancelled, QStringLiteral("system-time mutation cancelled")});
-            } else if (mutation.acquired) {
-                mutation.system = WindowsSystemClock::setUtc(targetUtc, [cancel] {
+            } else if (mutation->acquired) {
+                mutation->system = WindowsSystemClock::setUtc(targetUtc, [cancel] {
                     return cancel->load(std::memory_order_relaxed);
                 });
                 mutationMutex.release();
             }
-
-            QMetaObject::invokeMethod(
-                this,
-                [this, generation, operation, source, mutation = std::move(mutation)]() mutable {
-                    handleMutationFinished(generation, operation, source, mutation.acquired, mutation.system);
-                },
-                Qt::QueuedConnection);
         });
-    thread->setParent(this);
-    mutationThreads_.append(thread);
-    connect(thread, &QThread::finished, this, [this, thread] {
-        mutationThreads_.removeOne(thread);
-        thread->deleteLater();
-    }, Qt::QueuedConnection);
+    mutationThread_ = thread;
+    connect(thread,
+            &QThread::finished,
+            this,
+            [this, thread, generation, operation, source, mutation] {
+                if (mutationThread_ == thread) {
+                    mutationThread_ = nullptr;
+                }
+                handleMutationFinished(
+                    generation, operation, source, mutation->acquired, mutation->system);
+            },
+            Qt::QueuedConnection);
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
     thread->start();
 }
 

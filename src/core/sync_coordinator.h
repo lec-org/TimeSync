@@ -70,7 +70,7 @@ private:
     bool busy_ = false;
     bool cancelRequested_ = false;
     std::shared_ptr<std::atomic_bool> mutationCancel_;
-    QList<QThread *> mutationThreads_;
+    QThread *mutationThread_ = nullptr;
 };
 
 } // namespace TimeSync
