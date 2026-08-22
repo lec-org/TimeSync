@@ -141,6 +141,7 @@ void MainWindow::setReferenceState(const ReferenceState &state)
     } else {
         referenceElapsed_.invalidate();
     }
+    updateReferenceDisplay();
     updateBusyDisplay();
 }
 
@@ -182,7 +183,7 @@ void MainWindow::setDefaultServerList(const QStringList &servers)
 void MainWindow::setOperationResult(const OperationResult &result)
 {
     lastOperationResult_ = result;
-    hasOperationResult_ = true;
+    hasOperationResult_ = !result.success;
     switch (result.operation) {
     case OperationKind::Refresh:
         busyState_.refreshing = false;
@@ -211,7 +212,11 @@ void MainWindow::setOperationResult(const OperationResult &result)
     }
 
     updateBusyDisplay();
-    showOperationBanner(result);
+    if (result.success) {
+        operationBanner_->hide();
+    } else {
+        showOperationBanner(result);
+    }
 }
 
 void MainWindow::setLanguage(const QString &languageTag)
