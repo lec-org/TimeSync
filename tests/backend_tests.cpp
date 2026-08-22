@@ -1,9 +1,11 @@
 #include "../src/cli/cli_parser.h"
 #include "../src/core/config_repository.h"
+#include "../src/core/operation_types.h"
 #include "../src/core/trusted_clock.h"
 #include "../src/network/ntp_client.h"
 #include "../src/network/ntp_protocol.h"
 #include "../src/platform/task_scheduler.h"
+#include "../src/platform/windows_system_clock.h"
 
 #include <QElapsedTimer>
 #include <QFile>
@@ -29,6 +31,7 @@ private slots:
     void ntpClientTimesOutUsingWorkerTimer();
     void ntpClientReceivesFromLocalIpv6ServerWhenAvailable();
     void trustedClockAdvancesAndBecomesStale();
+    void systemTimeFailureMappingsStayDistinct();
     void cliRejectsConflictsAndMapsExitCodes();
     void taskActionArgumentsAreAbsoluteAndQuoted();
 };
@@ -335,6 +338,14 @@ void BackendTests::trustedClockAdvancesAndBecomesStale()
     clock.markRefreshFailed();
     QCOMPARE(clock.state().status, TrustedClockStatus::Error);
     QVERIFY(clock.utcNow() >= second);
+}
+
+void BackendTests::systemTimeFailureMappingsStayDistinct()
+{
+    QCOMPARE(operationFailureForSystemTimeFailure(static_cast<int>(SystemTimeFailure::AccessDenied)),
+             OperationFailure::SystemTimeRejected);
+    QCOMPARE(operationFailureForSystemTimeFailure(static_cast<int>(SystemTimeFailure::PrivilegeMissing)),
+             OperationFailure::PrivilegeMissing);
 }
 
 void BackendTests::cliRejectsConflictsAndMapsExitCodes()

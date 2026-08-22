@@ -14,6 +14,7 @@ enum class SystemTimeFailure {
     PrivilegeMissing,
     PrivilegeAdjustmentFailed,
     ApiRejected,
+    AccessDenied,
     VerificationFailed,
     Cancelled,
     UncertainState,

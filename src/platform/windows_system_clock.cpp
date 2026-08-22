@@ -143,6 +143,9 @@ SystemTimeResult WindowsSystemClock::setUtc(const QDateTime &targetUtc,
         if (nativeCode == ERROR_PRIVILEGE_NOT_HELD) {
             return failure(SystemTimeFailure::PrivilegeMissing, nativeCode);
         }
+        if (nativeCode == ERROR_ACCESS_DENIED) {
+            return failure(SystemTimeFailure::AccessDenied, nativeCode);
+        }
         return failure(SystemTimeFailure::ApiRejected, nativeCode);
     }
 

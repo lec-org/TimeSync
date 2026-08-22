@@ -59,6 +59,7 @@ OperationFailure operationFailureForSystemTimeFailure(const int failureValue) no
     case SystemTimeFailure::PrivilegeAdjustmentFailed:
         return OperationFailure::PrivilegeMissing;
     case SystemTimeFailure::ApiRejected:
+    case SystemTimeFailure::AccessDenied:
         return OperationFailure::SystemTimeRejected;
     case SystemTimeFailure::VerificationFailed:
         return OperationFailure::VerificationFailed;

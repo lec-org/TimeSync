@@ -51,6 +51,9 @@ ExitCode exitCodeForSystemResult(const SystemTimeResult &result)
         || result.failure == SystemTimeFailure::PrivilegeAdjustmentFailed) {
         return ExitCode::PermissionFailure;
     }
+    if (result.failure == SystemTimeFailure::AccessDenied) {
+        return ExitCode::PermissionFailure;
+    }
     if (result.failure == SystemTimeFailure::UnsupportedPlatform) {
         return ExitCode::OtherFailure;
     }
@@ -96,6 +99,7 @@ ErrorCode CliRunner::errorCodeForSystemFailure(const SystemTimeFailure failure)
     case SystemTimeFailure::PrivilegeAdjustmentFailed:
         return ErrorCode::PrivilegeAdjustmentFailed;
     case SystemTimeFailure::ApiRejected:
+    case SystemTimeFailure::AccessDenied:
         return ErrorCode::SystemTimeRejected;
     case SystemTimeFailure::VerificationFailed:
         return ErrorCode::VerificationFailed;
