@@ -806,23 +806,9 @@ void MainWindow::retranslateUi()
     intervalLabel_->setText(UiStrings::text(QStringLiteral("schedule.interval")));
     intervalSpinBox_->setSuffix(UiStrings::text(QStringLiteral("schedule.minutesSuffix")));
     scheduleStatusCaptionLabel_->setText(UiStrings::text(QStringLiteral("schedule.status")));
-    removeScheduleButton_->setText(busyState_.removingSchedule
-                                       ? UiStrings::text(QStringLiteral("busy.removing"))
-                                       : UiStrings::text(QStringLiteral("action.removeSchedule")));
-    applyScheduleButton_->setText(busyState_.changingSchedule
-                                      ? UiStrings::text(QStringLiteral("busy.updatingSchedule"))
-                                      : UiStrings::text(QStringLiteral("action.apply")));
-
     serversHeadingLabel_->setText(UiStrings::text(QStringLiteral("servers.heading")));
     serverList_->setAccessibleName(UiStrings::text(QStringLiteral("servers.heading")));
     editServersButton_->setText(UiStrings::text(QStringLiteral("action.editServers")));
-    refreshButton_->setText(busyState_.refreshing
-                                    || referenceState_.status == ReferenceStatus::Loading
-                                ? UiStrings::text(QStringLiteral("busy.refreshing"))
-                                : UiStrings::text(QStringLiteral("action.refresh")));
-    syncButton_->setText(busyState_.syncing
-                             ? UiStrings::text(QStringLiteral("busy.syncing"))
-                             : UiStrings::text(QStringLiteral("action.syncNow")));
 
     if (serverEditor_ != nullptr) {
         serverEditor_->retranslateUi();
@@ -837,6 +823,7 @@ void MainWindow::retranslateUi()
     updateReferenceDisplay();
     updateScheduleDisplay();
     updateServerDisplay();
+    updateBusyDisplay();
 }
 
 void MainWindow::updateClockDisplay()
@@ -914,6 +901,19 @@ void MainWindow::updateBusyDisplay()
 {
     const bool timeBusy = busyState_.refreshing || busyState_.syncing
         || busyState_.savingServers || referenceState_.status == ReferenceStatus::Loading;
+    refreshButton_->setText(busyState_.refreshing
+                                    || referenceState_.status == ReferenceStatus::Loading
+                                ? UiStrings::text(QStringLiteral("busy.refreshing"))
+                                : UiStrings::text(QStringLiteral("action.refresh")));
+    syncButton_->setText(busyState_.syncing
+                             ? UiStrings::text(QStringLiteral("busy.syncing"))
+                             : UiStrings::text(QStringLiteral("action.syncNow")));
+    removeScheduleButton_->setText(busyState_.removingSchedule
+                                       ? UiStrings::text(QStringLiteral("busy.removing"))
+                                       : UiStrings::text(QStringLiteral("action.removeSchedule")));
+    applyScheduleButton_->setText(busyState_.changingSchedule
+                                      ? UiStrings::text(QStringLiteral("busy.updatingSchedule"))
+                                      : UiStrings::text(QStringLiteral("action.apply")));
     refreshButton_->setEnabled(!timeBusy);
     syncButton_->setEnabled(!timeBusy);
     editServersButton_->setEnabled(!busyState_.savingServers && !busyState_.syncing);
@@ -924,8 +924,6 @@ void MainWindow::updateBusyDisplay()
     intervalSpinBox_->setEnabled(!scheduleBusy && scheduleEnabledCheck_->isChecked());
     applyScheduleButton_->setEnabled(!scheduleBusy);
     removeScheduleButton_->setEnabled(scheduleState_.exists && !scheduleBusy);
-
-    retranslateUi();
 }
 
 void MainWindow::updateScheduleDisplay()

@@ -114,6 +114,11 @@ void AppController::shutdown()
     }
     pendingHandoffPaths_.clear();
     coordinator_.cancel();
+    referenceLoading_ = false;
+    busyState_ = {};
+    if (window_ != nullptr) {
+        window_->setBusyState(busyState_);
+    }
     if (backgroundThread_ != nullptr) {
         QThread *thread = backgroundThread_;
         backgroundThread_ = nullptr;
@@ -184,7 +189,7 @@ void AppController::initializeUiFromConfiguration()
 
 void AppController::startInitialRefresh()
 {
-    startRefresh(false);
+    startRefresh();
 }
 
 bool AppController::canStartOperation() const
@@ -193,50 +198,33 @@ bool AppController::canStartOperation() const
         && !scheduleMutationActive_;
 }
 
-void AppController::setLoadingState(const bool loading, const bool forManualSync)
+void AppController::setLoadingState(const bool loading)
 {
     referenceLoading_ = loading;
     if (loading) {
         referenceFailure_ = Ui::ReferenceFailure::None;
     }
-    if (forManualSync) {
-        busyState_.syncing = loading;
-    } else {
-        busyState_.refreshing = loading;
-    }
+    busyState_.refreshing = loading;
     applyReferenceState();
     window_->setBusyState(busyState_);
 }
 
-void AppController::startRefresh(const bool forManualSync)
+void AppController::startRefresh()
 {
     if (!configReady_ || shuttingDown_ || coordinator_.isBusy() || elevationActive_
         || scheduleMutationActive_) {
-        if (forManualSync) {
-            emitUiOperation(Ui::OperationKind::ManualSync,
-                            false,
-                            Ui::OperationFailure::Unknown);
-        }
         return;
     }
 
     refreshPending_ = false;
-    manualAcquisition_ = forManualSync;
-    setLoadingState(true, forManualSync);
+    setLoadingState(true);
     const Result<quint64> started = coordinator_.startRefresh(config_);
     if (!started) {
         referenceLoading_ = false;
         applyReferenceState();
-        if (forManualSync) {
-            manualAcquisition_ = false;
-            busyState_.syncing = false;
-            window_->setBusyState(busyState_);
-            emitUiErrorOperation(Ui::OperationKind::ManualSync, started.error());
-        } else {
-            busyState_.refreshing = false;
-            window_->setBusyState(busyState_);
-            emitUiErrorOperation(Ui::OperationKind::Refresh, started.error());
-        }
+        busyState_.refreshing = false;
+        window_->setBusyState(busyState_);
+        emitUiErrorOperation(Ui::OperationKind::Refresh, started.error());
         return;
     }
     activeCoordinatorGeneration_ = started.value();
@@ -244,7 +232,7 @@ void AppController::startRefresh(const bool forManualSync)
 
 void AppController::onRefreshRequested()
 {
-    startRefresh(false);
+    startRefresh();
 }
 
 void AppController::onManualSyncRequested()
@@ -255,7 +243,18 @@ void AppController::onManualSyncRequested()
                         Ui::OperationFailure::Unknown);
         return;
     }
-    startRefresh(true);
+    busyState_.syncing = true;
+    window_->setBusyState(busyState_);
+
+    const Result<quint64> started =
+        coordinator_.startSync(config_, SyncMode::AuthorizedDirect, false);
+    if (!started) {
+        busyState_.syncing = false;
+        window_->setBusyState(busyState_);
+        emitUiErrorOperation(Ui::OperationKind::ManualSync, started.error());
+        return;
+    }
+    activeCoordinatorGeneration_ = started.value();
 }
 
 void AppController::onReferenceChanged(const TrustedClockState &state)
@@ -271,10 +270,11 @@ void AppController::onOperationFinished(const OperationResult &result)
     if (shuttingDown_ || result.generation != activeCoordinatorGeneration_) {
         return;
     }
-    activeCoordinatorGeneration_ = 0;
-    if (result.operation != OperationKind::Refresh) {
+    if (result.operation != OperationKind::Refresh
+        && result.operation != OperationKind::ManualSync) {
         return;
     }
+    activeCoordinatorGeneration_ = 0;
 
     referenceLoading_ = false;
     if (result.succeeded) {
@@ -286,35 +286,10 @@ void AppController::onOperationFinished(const OperationResult &result)
     }
     applyReferenceState();
 
-    if (manualAcquisition_) {
-        manualAcquisition_ = false;
-        busyState_.refreshing = false;
-        if (!result.succeeded) {
-            busyState_.syncing = false;
-            window_->setBusyState(busyState_);
-            Ui::OperationResult uiResult = toUiOperationResult(result);
-            uiResult.operation = Ui::OperationKind::ManualSync;
-            window_->setOperationResult(uiResult);
-            maybeStartPendingRefresh();
-            return;
-        }
+    if (result.operation == OperationKind::ManualSync) {
+        busyState_.syncing = false;
         window_->setBusyState(busyState_);
-        const Result<HandoffFile> handoff = ResultHandoff::create();
-        if (!handoff) {
-            finishManualSyncFailure(handoff.error());
-            return;
-        }
-        const QString executablePath = QFileInfo(QCoreApplication::applicationFilePath()).absoluteFilePath();
-        const QStringList arguments = {
-            QStringLiteral("--elevated-sync"),
-            QStringLiteral("--config"),
-            QFileInfo(configPath_).absoluteFilePath(),
-            QStringLiteral("--result"),
-            handoff.value().path,
-            QStringLiteral("--nonce"),
-            handoff.value().nonce,
-        };
-        startElevation(ElevatedPurpose::ManualSync, arguments, handoff.value());
+        window_->setOperationResult(toUiOperationResult(result));
         return;
     }
 
@@ -341,12 +316,12 @@ void AppController::onClockTimer()
 
 void AppController::maybeStartPendingRefresh()
 {
-    if (!refreshPending_ || shuttingDown_ || !configReady_ || referenceLoading_ || manualAcquisition_
+    if (!refreshPending_ || shuttingDown_ || !configReady_ || referenceLoading_
         || coordinator_.isBusy() || elevationActive_ || scheduleMutationActive_ || taskJobActive_) {
         return;
     }
     refreshPending_ = false;
-    startRefresh(false);
+    startRefresh();
 }
 
 Ui::ReferenceState AppController::toUiReferenceState(const TrustedClockState &state,
@@ -617,11 +592,7 @@ void AppController::startElevation(const ElevatedPurpose purpose,
         pendingHandoffPaths_.remove(handoff.path);
         QFile::remove(handoff.path);
         const Error error{ErrorCode::Busy, QStringLiteral("background operation is busy")};
-        if (purpose == ElevatedPurpose::ManualSync) {
-            finishManualSyncFailure(error);
-        } else {
-            finishScheduleMutationFailure(error);
-        }
+        finishScheduleMutationFailure(error);
         return;
     }
 
@@ -674,11 +645,7 @@ void AppController::handleElevationResult(const ElevatedPurpose purpose,
     elevationActive_ = false;
     elevationCancel_.reset();
     if (!result) {
-        if (purpose == ElevatedPurpose::ManualSync) {
-            finishManualSyncFailure(result.error());
-        } else {
-            finishScheduleMutationFailure(result.error(), result.error().uncertain);
-        }
+        finishScheduleMutationFailure(result.error(), result.error().uncertain);
         return;
     }
     const HandoffPayload &payload = result.value();
@@ -688,35 +655,10 @@ void AppController::handleElevationResult(const ElevatedPurpose purpose,
                           QStringLiteral("elevated operation failed"),
                           0,
                           payload.uncertain};
-        if (purpose == ElevatedPurpose::ManualSync) {
-            finishManualSyncFailure(error);
-        } else {
-            finishScheduleMutationFailure(error, payload.uncertain);
-        }
+        finishScheduleMutationFailure(error, payload.uncertain);
         return;
     }
-    if (purpose == ElevatedPurpose::ManualSync) {
-        finishManualSyncSuccess();
-    } else {
-        finishScheduleMutationSuccess();
-    }
-}
-
-void AppController::finishManualSyncFailure(const Error &error)
-{
-    busyState_.syncing = false;
-    window_->setBusyState(busyState_);
-    emitUiErrorOperation(Ui::OperationKind::ManualSync, error, error.uncertain);
-    maybeStartPendingRefresh();
-}
-
-void AppController::finishManualSyncSuccess()
-{
-    busyState_.syncing = false;
-    window_->setBusyState(busyState_);
-    emitUiOperation(Ui::OperationKind::ManualSync, true);
-    refreshPending_ = false;
-    startRefresh(false);
+    finishScheduleMutationSuccess();
 }
 
 void AppController::onServersSaveRequested(const QStringList &servers)
@@ -973,7 +915,7 @@ void AppController::onPowerResumed()
     }
     referenceFailure_ = Ui::ReferenceFailure::None;
     refreshPending_ = true;
-    if (coordinator_.isBusy() && !manualAcquisition_) {
+    if (coordinator_.isBusy()) {
         coordinator_.cancel();
     }
     applyReferenceState();

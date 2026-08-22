@@ -60,7 +60,6 @@ private slots:
 
 private:
     enum class ElevatedPurpose {
-        ManualSync,
         InstallTask,
         DisableTask,
         RemoveTask,
@@ -77,8 +76,8 @@ private:
     void loadConfiguration();
     void initializeUiFromConfiguration();
     void startInitialRefresh();
-    void startRefresh(bool forManualSync = false);
-    void setLoadingState(bool loading, bool forManualSync = false);
+    void startRefresh();
+    void setLoadingState(bool loading);
     void applyReferenceState();
     void applyTaskState(const Result<ScheduledTaskInfo> &result);
     void queryTaskState();
@@ -86,8 +85,6 @@ private:
                       std::function<void(const Result<ScheduledTaskInfo> &)> completed);
     void startElevation(ElevatedPurpose purpose, const QStringList &arguments, const HandoffFile &handoff);
     void handleElevationResult(ElevatedPurpose purpose, const Result<HandoffPayload> &result);
-    void finishManualSyncFailure(const Error &error);
-    void finishManualSyncSuccess();
     void finishScheduleMutationSuccess();
     void finishScheduleMutationFailure(const Error &error, bool uncertain = false);
     void rollbackScheduleConfiguration(bool uncertainOnFailure, const Error &operationError);
@@ -135,7 +132,6 @@ private:
     Ui::ReferenceFailure referenceFailure_ = Ui::ReferenceFailure::None;
     QString languageBeforeChange_;
     bool referenceLoading_ = false;
-    bool manualAcquisition_ = false;
     bool elevationActive_ = false;
     bool scheduleMutationActive_ = false;
     bool scheduleDesiredEnabled_ = false;
