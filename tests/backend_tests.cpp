@@ -4,6 +4,7 @@
 #include "../src/core/trusted_clock.h"
 #include "../src/network/ntp_client.h"
 #include "../src/network/ntp_protocol.h"
+#include "../src/platform/elevation_broker.h"
 #include "../src/platform/task_scheduler.h"
 #include "../src/platform/windows_system_clock.h"
 
@@ -34,6 +35,7 @@ private slots:
     void systemTimeFailureMappingsStayDistinct();
     void cliRejectsConflictsAndMapsExitCodes();
     void taskActionArgumentsAreAbsoluteAndQuoted();
+    void elevationBrokerQuotesArgumentsAndReportsPlatformSupport();
 };
 
 void BackendTests::configDefaultsAndCreation()
@@ -408,6 +410,26 @@ void BackendTests::taskActionArgumentsAreAbsoluteAndQuoted()
     QCOMPARE(arguments,
              QStringLiteral("--sync-once --scheduled --config \"C:/Time Sync/config.ini\""));
     QVERIFY(!arguments.contains(QStringLiteral("schtasks"), Qt::CaseInsensitive));
+}
+
+void BackendTests::elevationBrokerQuotesArgumentsAndReportsPlatformSupport()
+{
+    QCOMPARE(ElevationBroker::quoteWindowsArgument(QString()), QStringLiteral("\"\""));
+    QCOMPARE(ElevationBroker::quoteWindowsArgument(QStringLiteral("C:/Time Sync/TimeSync.exe")),
+             QStringLiteral("\"C:/Time Sync/TimeSync.exe\""));
+    QCOMPARE(ElevationBroker::quoteWindowsArgument(QStringLiteral("a\"b")), QStringLiteral("\"a\\\"b\""));
+    QCOMPARE(ElevationBroker::quoteWindowsArgument(QStringLiteral("C:/path\\")),
+             QStringLiteral("\"C:/path\\\\\""));
+
+#ifndef Q_OS_WIN
+    const Result<bool> elevated = ElevationBroker::isProcessElevated();
+    QVERIFY(!elevated);
+    QCOMPARE(elevated.error().code, ErrorCode::UnsupportedPlatform);
+
+    const Result<void> relaunched = ElevationBroker::relaunchAsAdministrator(QStringLiteral("TimeSync"), {});
+    QVERIFY(!relaunched);
+    QCOMPARE(relaunched.error().code, ErrorCode::UnsupportedPlatform);
+#endif
 }
 
 QTEST_MAIN(BackendTests)

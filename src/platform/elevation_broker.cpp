@@ -55,6 +55,79 @@ QString ElevationBroker::quoteWindowsArgument(const QString &argument)
     return result;
 }
 
+Result<bool> ElevationBroker::isProcessElevated()
+{
+#ifndef Q_OS_WIN
+    return Result<bool>::failure(
+        brokerError(ErrorCode::UnsupportedPlatform, QStringLiteral("UAC elevation is only available on Windows")));
+#else
+    HANDLE token = nullptr;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
+        return Result<bool>::failure(
+            brokerError(ErrorCode::ElevationFailed, QStringLiteral("cannot query process elevation"), GetLastError()));
+    }
+
+    TOKEN_ELEVATION elevation{};
+    DWORD returnedLength = 0;
+    const BOOL queried = GetTokenInformation(token,
+                                             TokenElevation,
+                                             &elevation,
+                                             sizeof(elevation),
+                                             &returnedLength);
+    const DWORD nativeCode = queried ? ERROR_SUCCESS : GetLastError();
+    CloseHandle(token);
+    if (!queried) {
+        return Result<bool>::failure(
+            brokerError(ErrorCode::ElevationFailed, QStringLiteral("cannot query process elevation"), nativeCode));
+    }
+    return Result<bool>::success(elevation.TokenIsElevated != 0);
+#endif
+}
+
+Result<void> ElevationBroker::relaunchAsAdministrator(const QString &executablePath, const QStringList &arguments)
+{
+#ifndef Q_OS_WIN
+    Q_UNUSED(executablePath)
+    Q_UNUSED(arguments)
+    return Result<void>::failure(
+        brokerError(ErrorCode::UnsupportedPlatform, QStringLiteral("UAC elevation is only available on Windows")));
+#else
+    const QFileInfo executable(QFileInfo(executablePath).absoluteFilePath());
+    if (!executable.isAbsolute() || !executable.exists() || !executable.isFile()) {
+        return Result<void>::failure(
+            brokerError(ErrorCode::InvalidArgument, QStringLiteral("invalid elevation executable")));
+    }
+
+    QStringList quotedArguments;
+    quotedArguments.reserve(arguments.size());
+    for (const QString &argument : arguments) {
+        quotedArguments.append(quoteWindowsArgument(argument));
+    }
+    const std::wstring fileName = executable.absoluteFilePath().toStdWString();
+    const std::wstring parameters = quotedArguments.join(QLatin1Char(' ')).toStdWString();
+
+    SHELLEXECUTEINFOW executeInfo{};
+    executeInfo.cbSize = sizeof(executeInfo);
+    executeInfo.fMask = SEE_MASK_NOCLOSEPROCESS;
+    executeInfo.lpVerb = L"runas";
+    executeInfo.lpFile = fileName.c_str();
+    executeInfo.lpParameters = parameters.c_str();
+    executeInfo.nShow = SW_SHOWNORMAL;
+    if (!ShellExecuteExW(&executeInfo)) {
+        const DWORD nativeCode = GetLastError();
+        return Result<void>::failure(
+            brokerError(nativeCode == ERROR_CANCELLED ? ErrorCode::ElevationCancelled : ErrorCode::ElevationFailed,
+                        QStringLiteral("elevated process launch failed"),
+                        nativeCode));
+    }
+
+    if (executeInfo.hProcess != nullptr) {
+        CloseHandle(executeInfo.hProcess);
+    }
+    return Result<void>::success();
+#endif
+}
+
 Result<int> ElevationBroker::runAsAdministrator(const QString &executablePath,
                                                 const QStringList &arguments,
                                                 const int timeoutMs,
