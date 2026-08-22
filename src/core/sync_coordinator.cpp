@@ -5,7 +5,18 @@
 
 #include <QMetaObject>
 
+#include <utility>
+
 namespace TimeSync {
+namespace {
+
+struct MutationResult {
+    Result<void> acquired = Result<void>::failure({ErrorCode::InternalError,
+                                                    QStringLiteral("system-time mutation did not acquire mutex")});
+    SystemTimeResult system;
+};
+
+} // namespace
 
 SyncCoordinator::SyncCoordinator(QObject *parent)
     : QObject(parent)
@@ -14,6 +25,18 @@ SyncCoordinator::SyncCoordinator(QObject *parent)
 {
     connect(&ntpClient_, &NtpClient::finished, this, &SyncCoordinator::handleNtpFinished);
     connect(&clock_, &TrustedClock::changed, this, [this] { emit referenceChanged(clock_.state()); });
+}
+
+SyncCoordinator::~SyncCoordinator()
+{
+    if (mutationCancel_) {
+        mutationCancel_->store(true, std::memory_order_relaxed);
+    }
+    for (QThread *thread : std::as_const(mutationThreads_)) {
+        if (thread != nullptr && thread->isRunning()) {
+            thread->wait();
+        }
+    }
 }
 
 Result<QList<ServerEndpoint>> SyncCoordinator::endpointsForConfig(const AppConfig &config) const
@@ -74,6 +97,9 @@ void SyncCoordinator::cancel()
         return;
     }
     cancelRequested_ = true;
+    if (mutationCancel_) {
+        mutationCancel_->store(true, std::memory_order_relaxed);
+    }
     ntpClient_.cancel();
 }
 
@@ -116,24 +142,67 @@ void SyncCoordinator::handleNtpFinished(const quint64 generation, const NtpQuery
         return;
     }
 
-    CrossProcessMutex mutationMutex;
-    const Result<void> acquired = mutationMutex.acquire(CrossProcessMutex::DefaultWaitMs);
-    if (!acquired) {
-        finishFailure(acquired.error().code);
+    startSystemTimeMutation(clock_.utcNow(), result.sample.source);
+}
+
+void SyncCoordinator::startSystemTimeMutation(const QDateTime &targetUtc, const QString &source)
+{
+    const quint64 generation = operationGeneration_;
+    const OperationKind operation = operation_;
+    const std::shared_ptr<std::atomic_bool> cancel = std::make_shared<std::atomic_bool>(false);
+    mutationCancel_ = cancel;
+
+    QThread *thread = QThread::create(
+        [this, generation, operation, source, targetUtc, cancel] {
+            MutationResult mutation;
+            CrossProcessMutex mutationMutex;
+            mutation.acquired = mutationMutex.acquire(CrossProcessMutex::DefaultWaitMs);
+            if (!mutation.acquired && cancel->load(std::memory_order_relaxed)) {
+                mutation.acquired = Result<void>::failure(
+                    {ErrorCode::Cancelled, QStringLiteral("system-time mutation cancelled")});
+            } else if (mutation.acquired) {
+                mutation.system = WindowsSystemClock::setUtc(targetUtc, [cancel] {
+                    return cancel->load(std::memory_order_relaxed);
+                });
+                mutationMutex.release();
+            }
+
+            QMetaObject::invokeMethod(
+                this,
+                [this, generation, operation, source, mutation = std::move(mutation)]() mutable {
+                    handleMutationFinished(generation, operation, source, mutation.acquired, mutation.system);
+                },
+                Qt::QueuedConnection);
+        });
+    thread->setParent(this);
+    mutationThreads_.append(thread);
+    connect(thread, &QThread::finished, this, [this, thread] {
+        mutationThreads_.removeOne(thread);
+        thread->deleteLater();
+    }, Qt::QueuedConnection);
+    thread->start();
+}
+
+void SyncCoordinator::handleMutationFinished(const quint64 generation,
+                                              const OperationKind operation,
+                                              const QString &source,
+                                              const Result<void> &acquired,
+                                              const SystemTimeResult &systemResult)
+{
+    if (!busy_ || generation != operationGeneration_) {
         return;
     }
-
-    const QDateTime targetUtc = clock_.utcNow();
-    const SystemTimeResult systemResult = WindowsSystemClock::setUtc(targetUtc, [this] {
-        return cancelRequested_;
-    });
-    mutationMutex.release();
+    mutationCancel_.reset();
+    if (!acquired) {
+        finishFailure(acquired.error().code, acquired.error().uncertain);
+        return;
+    }
     if (!systemResult.succeeded) {
         const OperationFailure failure = operationFailureForSystemTimeFailure(
             static_cast<int>(systemResult.failure));
         OperationResult failed;
-        failed.generation = operationGeneration_;
-        failed.operation = operation_;
+        failed.generation = generation;
+        failed.operation = operation;
         failed.failure = failure;
         failed.exitCode = failure == OperationFailure::VerificationFailed
             ? ExitCode::VerificationFailure
@@ -147,11 +216,11 @@ void SyncCoordinator::handleNtpFinished(const quint64 generation, const NtpQuery
     }
 
     OperationResult completed;
-    completed.generation = operationGeneration_;
-    completed.operation = operation_;
+    completed.generation = generation;
+    completed.operation = operation;
     completed.succeeded = true;
     completed.exitCode = ExitCode::Success;
-    completed.source = result.sample.source;
+    completed.source = source;
     finish(completed);
 }
 

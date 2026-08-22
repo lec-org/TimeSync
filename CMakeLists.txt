@@ -88,6 +88,11 @@ target_compile_definitions(TimeSync PRIVATE TIMESYNC_HAS_UI)
 target_sources(TimeSync PRIVATE resources/timesync.qrc)
 
 if(WIN32)
+    set_source_files_properties(
+        "${CMAKE_CURRENT_SOURCE_DIR}/resources/timesync_manifest.rc"
+        PROPERTIES
+        OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/resources/TimeSync.manifest"
+    )
     target_sources(TimeSync PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/resources/timesync_manifest.rc")
 endif()
 

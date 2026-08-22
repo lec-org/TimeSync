@@ -6,9 +6,16 @@
 #include "../network/ntp_client.h"
 #include "../platform/power_resume_monitor.h"
 
+#include <QList>
 #include <QObject>
+#include <QThread>
+
+#include <atomic>
+#include <memory>
 
 namespace TimeSync {
+
+struct SystemTimeResult;
 
 enum class SyncMode {
     RefreshOnly = 0,
@@ -21,7 +28,7 @@ class SyncCoordinator final : public QObject {
 
 public:
     explicit SyncCoordinator(QObject *parent = nullptr);
-    ~SyncCoordinator() override = default;
+    ~SyncCoordinator() override;
 
     [[nodiscard]] Result<quint64> startRefresh(const AppConfig &config);
     [[nodiscard]] Result<quint64> startSync(const AppConfig &config,
@@ -44,6 +51,12 @@ private slots:
 
 private:
     [[nodiscard]] Result<QList<ServerEndpoint>> endpointsForConfig(const AppConfig &config) const;
+    void startSystemTimeMutation(const QDateTime &targetUtc, const QString &source);
+    void handleMutationFinished(quint64 generation,
+                                OperationKind operation,
+                                const QString &source,
+                                const Result<void> &acquired,
+                                const SystemTimeResult &systemResult);
     void finish(const OperationResult &result);
     void finishFailure(ErrorCode code, bool uncertain = false);
 
@@ -56,6 +69,8 @@ private:
     bool scheduled_ = false;
     bool busy_ = false;
     bool cancelRequested_ = false;
+    std::shared_ptr<std::atomic_bool> mutationCancel_;
+    QList<QThread *> mutationThreads_;
 };
 
 } // namespace TimeSync
