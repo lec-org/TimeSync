@@ -65,13 +65,39 @@ Result<quint64> SyncCoordinator::startRefresh(const AppConfig &config)
     return startSync(config, SyncMode::RefreshOnly, false);
 }
 
+bool SyncCoordinator::canApplyFreshClockForManualSync() const
+{
+    return clock_.isFresh() && clock_.utcNow().isValid();
+}
+
 Result<quint64> SyncCoordinator::startSync(const AppConfig &config,
                                            const SyncMode mode,
                                            const bool scheduled)
 {
+    const bool manualSync = mode == SyncMode::AuthorizedDirect && !scheduled;
     if (busy_) {
+        if (manualSync && mode_ == SyncMode::RefreshOnly && operation_ == OperationKind::Refresh
+            && !cancelRequested_) {
+            operation_ = OperationKind::ManualSync;
+            mode_ = SyncMode::AuthorizedDirect;
+            scheduled_ = false;
+            return Result<quint64>::success(operationGeneration_);
+        }
         return Result<quint64>::failure({ErrorCode::Busy, QStringLiteral("sync operation already running")});
     }
+
+    if (manualSync && canApplyFreshClockForManualSync()) {
+        ++operationGeneration_;
+        operation_ = OperationKind::ManualSync;
+        mode_ = SyncMode::AuthorizedDirect;
+        scheduled_ = false;
+        cancelRequested_ = false;
+        busy_ = true;
+        ntpGeneration_ = 0;
+        startSystemTimeMutation(clock_.utcNow(), clock_.source());
+        return Result<quint64>::success(operationGeneration_);
+    }
+
     const Result<QList<ServerEndpoint>> endpoints = endpointsForConfig(config);
     if (!endpoints) {
         return Result<quint64>::failure(endpoints.error());

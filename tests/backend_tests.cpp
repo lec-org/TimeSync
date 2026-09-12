@@ -33,6 +33,8 @@ private slots:
     void ntpClientTimesOutUsingWorkerTimer();
     void ntpClientReceivesFromLocalIpv6ServerWhenAvailable();
     void syncCoordinatorRejectsConcurrentRequests();
+    void syncCoordinatorUpgradesRefreshToManualSync();
+    void syncCoordinatorUsesFreshClockWithoutNtp();
     void trustedClockAdvancesAndBecomesStale();
     void systemTimeFailureMappingsStayDistinct();
     void cliRejectsConflictsAndMapsExitCodes();
@@ -332,12 +334,50 @@ void BackendTests::syncCoordinatorRejectsConcurrentRequests()
     config.servers = {QStringLiteral("127.0.0.1:%1").arg(silentServer.localPort())};
 
     SyncCoordinator coordinator;
-    const Result<quint64> first = coordinator.startRefresh(config);
+    const Result<quint64> first = coordinator.startSync(config, SyncMode::AuthorizedDirect);
     QVERIFY(first);
     const Result<quint64> repeated = coordinator.startSync(config, SyncMode::AuthorizedDirect);
     QVERIFY(!repeated);
     QCOMPARE(repeated.error().code, ErrorCode::Busy);
     coordinator.cancel();
+}
+
+void BackendTests::syncCoordinatorUpgradesRefreshToManualSync()
+{
+    QUdpSocket silentServer;
+    QVERIFY(silentServer.bind(QHostAddress::LocalHost, 0));
+
+    AppConfig config = ConfigRepository::defaultConfig();
+    config.servers = {QStringLiteral("127.0.0.1:%1").arg(silentServer.localPort())};
+
+    SyncCoordinator coordinator;
+    const Result<quint64> refresh = coordinator.startRefresh(config);
+    QVERIFY(refresh);
+    const Result<quint64> sync = coordinator.startSync(config, SyncMode::AuthorizedDirect);
+    QVERIFY(sync);
+    QCOMPARE(sync.value(), refresh.value());
+    coordinator.cancel();
+}
+
+void BackendTests::syncCoordinatorUsesFreshClockWithoutNtp()
+{
+    SyncCoordinator coordinator;
+    QVERIFY(!coordinator.canApplyFreshClockForManualSync());
+
+    AppConfig empty;
+    empty.servers.clear();
+    const Result<quint64> withoutSample = coordinator.startSync(empty, SyncMode::AuthorizedDirect);
+    QVERIFY(!withoutSample);
+    QCOMPARE(withoutSample.error().code, ErrorCode::InvalidConfiguration);
+
+    NtpSample sample;
+    sample.utcAtReceive = QDateTime::currentDateTimeUtc();
+    sample.source = QStringLiteral("cached-source");
+    coordinator.trustedClock()->calibrate(sample);
+    QVERIFY(coordinator.canApplyFreshClockForManualSync());
+
+    coordinator.trustedClock()->markResume();
+    QVERIFY(!coordinator.canApplyFreshClockForManualSync());
 }
 
 void BackendTests::trustedClockAdvancesAndBecomesStale()

@@ -37,6 +37,7 @@ public:
     void cancel();
 
     [[nodiscard]] bool isBusy() const noexcept { return busy_; }
+    [[nodiscard]] bool canApplyFreshClockForManualSync() const;
     [[nodiscard]] const TrustedClock *trustedClock() const noexcept { return &clock_; }
     [[nodiscard]] TrustedClock *trustedClock() noexcept { return &clock_; }
     void attachPowerResumeMonitor(PowerResumeMonitor *monitor);

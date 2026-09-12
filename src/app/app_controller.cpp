@@ -247,7 +247,7 @@ void AppController::onRefreshRequested()
 
 void AppController::onManualSyncRequested()
 {
-    if (!canStartOperation()) {
+    if (!configReady_ || shuttingDown_ || elevationActive_ || scheduleMutationActive_) {
         emitUiOperation(Ui::OperationKind::ManualSync,
                         false,
                         Ui::OperationFailure::Unknown);
@@ -298,6 +298,7 @@ void AppController::onOperationFinished(const OperationResult &result)
 
     if (result.operation == OperationKind::ManualSync) {
         busyState_.syncing = false;
+        busyState_.refreshing = false;
         window_->setBusyState(busyState_);
         window_->setOperationResult(toUiOperationResult(result));
         return;
