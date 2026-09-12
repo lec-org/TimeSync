@@ -295,15 +295,8 @@ Result<ScheduledTaskInfo> queryTask(ITaskFolder *root)
                         BSTR interval = nullptr;
                         if (SUCCEEDED(repetition->get_Interval(&interval))) {
                             const QString intervalText = bstrToQString(interval);
-                            static const QRegularExpression pattern(QStringLiteral("^PT([1-9][0-9]*)M$"));
-                            const QRegularExpressionMatch match = pattern.match(intervalText);
-                            if (match.hasMatch()) {
-                                bool converted = false;
-                                info.intervalMinutes = match.captured(1).toInt(&converted);
-                                if (!converted) {
-                                    info.intervalMinutes = 0;
-                                }
-                            }
+                            info.intervalMinutes = TaskSchedulerBackend::parseRepetitionIntervalMinutes(
+                                intervalText);
                         }
                     }
                 }
@@ -326,6 +319,38 @@ QString TaskSchedulerBackend::buildActionArguments(const QString &configPath)
 {
     return QStringLiteral("--sync-once --scheduled --config %1")
         .arg(ElevationBroker::quoteWindowsArgument(QFileInfo(configPath).absoluteFilePath()));
+}
+
+int TaskSchedulerBackend::parseRepetitionIntervalMinutes(const QString &iso8601)
+{
+    const QString text = iso8601.trimmed().toUpper();
+    static const QRegularExpression pattern(
+        QStringLiteral("^P(?:([0-9]+)D)?(?:T(?:([0-9]+)H)?(?:([0-9]+)M)?(?:([0-9]+)S)?)?$"));
+    const QRegularExpressionMatch match = pattern.match(text);
+    if (!match.hasMatch() || text == QStringLiteral("P") || text == QStringLiteral("PT")) {
+        return 0;
+    }
+
+    const auto captured = [](const QRegularExpressionMatch &current, const int index) {
+        if (!current.capturedView(index).isEmpty()) {
+            bool converted = false;
+            const int value = current.captured(index).toInt(&converted);
+            if (converted && value >= 0) {
+                return value;
+            }
+        }
+        return 0;
+    };
+
+    const qint64 days = captured(match, 1);
+    const qint64 hours = captured(match, 2);
+    const qint64 minutes = captured(match, 3);
+    const qint64 seconds = captured(match, 4);
+    const qint64 totalMinutes = days * 24 * 60 + hours * 60 + minutes + (seconds + 59) / 60;
+    if (totalMinutes <= 0 || totalMinutes > 10080) {
+        return 0;
+    }
+    return static_cast<int>(totalMinutes);
 }
 
 Result<ScheduledTaskInfo> TaskSchedulerBackend::query() const

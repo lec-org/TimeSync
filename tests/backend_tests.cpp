@@ -37,6 +37,7 @@ private slots:
     void systemTimeFailureMappingsStayDistinct();
     void cliRejectsConflictsAndMapsExitCodes();
     void taskActionArgumentsAreAbsoluteAndQuoted();
+    void taskRepetitionIntervalParsesNormalizedIso8601();
     void elevationBrokerQuotesArgumentsAndReportsPlatformSupport();
 };
 
@@ -429,6 +430,18 @@ void BackendTests::taskActionArgumentsAreAbsoluteAndQuoted()
     QCOMPARE(arguments,
              QStringLiteral("--sync-once --scheduled --config \"C:/Time Sync/config.ini\""));
     QVERIFY(!arguments.contains(QStringLiteral("schtasks"), Qt::CaseInsensitive));
+}
+
+void BackendTests::taskRepetitionIntervalParsesNormalizedIso8601()
+{
+    QCOMPARE(TaskSchedulerBackend::parseRepetitionIntervalMinutes(QStringLiteral("PT60M")), 60);
+    QCOMPARE(TaskSchedulerBackend::parseRepetitionIntervalMinutes(QStringLiteral("PT1H")), 60);
+    QCOMPARE(TaskSchedulerBackend::parseRepetitionIntervalMinutes(QStringLiteral("PT2H")), 120);
+    QCOMPARE(TaskSchedulerBackend::parseRepetitionIntervalMinutes(QStringLiteral("PT1H30M")), 90);
+    QCOMPARE(TaskSchedulerBackend::parseRepetitionIntervalMinutes(QStringLiteral("P1DT1H")), 1500);
+    QCOMPARE(TaskSchedulerBackend::parseRepetitionIntervalMinutes(QStringLiteral("pt1h")), 60);
+    QCOMPARE(TaskSchedulerBackend::parseRepetitionIntervalMinutes(QString()), 0);
+    QCOMPARE(TaskSchedulerBackend::parseRepetitionIntervalMinutes(QStringLiteral("PT")), 0);
 }
 
 void BackendTests::elevationBrokerQuotesArgumentsAndReportsPlatformSupport()

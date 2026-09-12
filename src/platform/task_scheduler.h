@@ -18,6 +18,7 @@ class TaskSchedulerBackend final {
 public:
     [[nodiscard]] static QString taskName();
     [[nodiscard]] static QString buildActionArguments(const QString &configPath);
+    [[nodiscard]] static int parseRepetitionIntervalMinutes(const QString &iso8601);
 
     [[nodiscard]] Result<ScheduledTaskInfo> query() const;
     [[nodiscard]] Result<ScheduledTaskInfo> install(const QString &executablePath,
