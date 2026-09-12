@@ -37,9 +37,14 @@ void PowerResumeMonitor::uninstall(QCoreApplication *application)
 bool PowerResumeMonitor::nativeEventFilter(const QByteArray &eventType, void *message, qintptr *result)
 {
 #ifdef Q_OS_WIN
-    Q_UNUSED(result)
     if (eventType == QByteArrayLiteral("windows_generic_MSG") && message != nullptr) {
         const MSG *msg = static_cast<const MSG *>(message);
+        if (msg->message == WM_TIMECHANGE) {
+            if (result != nullptr) {
+                *result = 0;
+            }
+            return true;
+        }
         if (msg->message == WM_POWERBROADCAST
             && (msg->wParam == PBT_APMRESUMEAUTOMATIC || msg->wParam == PBT_APMRESUMESUSPEND
                 || msg->wParam == PBT_APMRESUMECRITICAL)) {

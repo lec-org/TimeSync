@@ -3,8 +3,11 @@
 #include "../platform/cross_process_mutex.h"
 #include "../platform/windows_system_clock.h"
 
-#include <QThread>
+#include <QMetaObject>
+#include <QPointer>
 
+#include <system_error>
+#include <thread>
 #include <utility>
 
 namespace TimeSync {
@@ -25,16 +28,16 @@ SyncCoordinator::SyncCoordinator(QObject *parent)
 {
     connect(&ntpClient_, &NtpClient::finished, this, &SyncCoordinator::handleNtpFinished);
     connect(&clock_, &TrustedClock::changed, this, [this] { emit referenceChanged(clock_.state()); });
+    mutationWatchdog_.setSingleShot(true);
+    mutationWatchdog_.setInterval(SystemClockMutationTimeoutMs);
+    connect(&mutationWatchdog_, &QTimer::timeout, this, &SyncCoordinator::handleMutationWatchdog);
 }
 
 SyncCoordinator::~SyncCoordinator()
 {
+    mutationWatchdog_.stop();
     if (mutationCancel_) {
         mutationCancel_->store(true, std::memory_order_relaxed);
-    }
-    if (mutationThread_ != nullptr) {
-        disconnect(mutationThread_, nullptr, this, nullptr);
-        mutationThread_ = nullptr;
     }
 }
 
@@ -152,8 +155,12 @@ void SyncCoordinator::startSystemTimeMutation(const QDateTime &targetUtc, const 
     const std::shared_ptr<MutationResult> mutation = std::make_shared<MutationResult>();
     mutationCancel_ = cancel;
 
-    QThread *thread = QThread::create(
-        [targetUtc, cancel, mutation] {
+    emit systemClockMutationStarted();
+    mutationWatchdog_.start();
+
+    const QPointer<SyncCoordinator> self(this);
+    try {
+        std::thread([self, targetUtc, cancel, mutation, generation, operation, source] {
             CrossProcessMutex mutationMutex;
             mutation->acquired = mutationMutex.acquire(CrossProcessMutex::DefaultWaitMs);
             if (!mutation->acquired && cancel->load(std::memory_order_relaxed)) {
@@ -165,21 +172,33 @@ void SyncCoordinator::startSystemTimeMutation(const QDateTime &targetUtc, const 
                 });
                 mutationMutex.release();
             }
-        });
-    mutationThread_ = thread;
-    connect(thread,
-            &QThread::finished,
-            this,
-            [this, thread, generation, operation, source, mutation] {
-                if (mutationThread_ == thread) {
-                    mutationThread_ = nullptr;
+            if (self.isNull()) {
+                return;
+            }
+            QMetaObject::invokeMethod(self.data(), [self, generation, operation, source, mutation] {
+                if (self.isNull()) {
+                    return;
                 }
-                handleMutationFinished(
+                self->handleMutationFinished(
                     generation, operation, source, mutation->acquired, mutation->system);
-            },
-            Qt::QueuedConnection);
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    thread->start();
+            }, Qt::QueuedConnection);
+        }).detach();
+    } catch (const std::system_error &) {
+        mutationWatchdog_.stop();
+        emit systemClockMutationEnded();
+        finishFailure(ErrorCode::InternalError);
+    }
+}
+
+void SyncCoordinator::handleMutationWatchdog()
+{
+    if (!busy_) {
+        return;
+    }
+    if (mutationCancel_) {
+        mutationCancel_->store(true, std::memory_order_relaxed);
+    }
+    finishFailure(ErrorCode::UncertainState, true);
 }
 
 void SyncCoordinator::handleMutationFinished(const quint64 generation,
@@ -188,6 +207,8 @@ void SyncCoordinator::handleMutationFinished(const quint64 generation,
                                               const Result<void> &acquired,
                                               const SystemTimeResult &systemResult)
 {
+    mutationWatchdog_.stop();
+    emit systemClockMutationEnded();
     if (!busy_ || generation != operationGeneration_) {
         return;
     }
@@ -239,6 +260,7 @@ void SyncCoordinator::finish(const OperationResult &result)
     if (!busy_) {
         return;
     }
+    mutationWatchdog_.stop();
     busy_ = false;
     cancelRequested_ = false;
     emit operationFinished(result);

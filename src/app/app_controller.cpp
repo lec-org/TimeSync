@@ -71,6 +71,16 @@ AppController::AppController(Ui::MainWindow *window,
             &SyncCoordinator::operationFinished,
             this,
             &AppController::onOperationFinished);
+    connect(&coordinator_, &SyncCoordinator::systemClockMutationStarted, this, [this] {
+        if (window_ != nullptr) {
+            window_->setSystemClockReadSuspended(true);
+        }
+    });
+    connect(&coordinator_, &SyncCoordinator::systemClockMutationEnded, this, [this] {
+        if (window_ != nullptr) {
+            window_->setSystemClockReadSuspended(false);
+        }
+    });
     coordinator_.attachPowerResumeMonitor(&powerMonitor_);
     connect(&powerMonitor_, &PowerResumeMonitor::resumed, this, &AppController::onPowerResumed);
 }

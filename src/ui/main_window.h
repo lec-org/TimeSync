@@ -2,6 +2,7 @@
 
 #include "ui_types.h"
 
+#include <QDateTime>
 #include <QElapsedTimer>
 #include <QMainWindow>
 
@@ -44,6 +45,7 @@ public slots:
     void setDefaultServerList(const QStringList &servers);
     void setOperationResult(const TimeSync::Ui::OperationResult &result);
     void setLanguage(const QString &languageTag);
+    void setSystemClockReadSuspended(bool suspended);
 
 protected:
     void resizeEvent(QResizeEvent *event) override;
@@ -64,8 +66,10 @@ private:
     QString referenceDetail() const;
     QString calibrationAgeText(qint64 totalSeconds) const;
     QString formattedDate(const QDateTime &dateTime) const;
-    QString systemTimeZoneText(const QDateTime &systemTime) const;
+    QString systemTimeZoneText() const;
     QString timeDifferenceText(qint64 differenceMilliseconds) const;
+    void captureSystemClockSample();
+    QDateTime displayedSystemTime() const;
     QString scheduleStatusText() const;
     void setTone(QWidget *widget, const QString &tone);
 
@@ -124,6 +128,11 @@ private:
 
     QTimer *clockTimer_ = nullptr;
     QElapsedTimer referenceElapsed_;
+    QElapsedTimer systemClockElapsed_;
+    QDateTime cachedSystemTime_;
+    QString cachedZoneAbbreviation_;
+    int cachedOffsetSeconds_ = 0;
+    bool systemClockReadSuspended_ = false;
     ReferenceState referenceState_;
     BusyState busyState_;
     ScheduleState scheduleState_;

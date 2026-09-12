@@ -98,6 +98,7 @@ MainWindow::MainWindow(QWidget *parent)
     clockTimer_->setTimerType(Qt::PreciseTimer);
     clockTimer_->setInterval(250);
     connect(clockTimer_, &QTimer::timeout, this, &MainWindow::updateClockDisplay);
+    captureSystemClockSample();
     clockTimer_->start();
     QTimer::singleShot(0, this, &MainWindow::updateResponsiveLayout);
 }
@@ -831,12 +832,49 @@ void MainWindow::retranslateUi()
     updateBusyDisplay();
 }
 
+void MainWindow::setSystemClockReadSuspended(const bool suspended)
+{
+    if (suspended == systemClockReadSuspended_) {
+        return;
+    }
+    if (suspended) {
+        captureSystemClockSample();
+    }
+    systemClockReadSuspended_ = suspended;
+    if (!suspended) {
+        captureSystemClockSample();
+    }
+    updateClockDisplay();
+}
+
+void MainWindow::captureSystemClockSample()
+{
+    cachedSystemTime_ = QDateTime::currentDateTime();
+    cachedZoneAbbreviation_ = cachedSystemTime_.timeZoneAbbreviation().trimmed();
+    cachedOffsetSeconds_ = cachedSystemTime_.offsetFromUtc();
+    systemClockElapsed_.start();
+}
+
+QDateTime MainWindow::displayedSystemTime() const
+{
+    if (!cachedSystemTime_.isValid()) {
+        return {};
+    }
+    if (!systemClockReadSuspended_ || !systemClockElapsed_.isValid()) {
+        return cachedSystemTime_;
+    }
+    return cachedSystemTime_.addMSecs(systemClockElapsed_.elapsed());
+}
+
 void MainWindow::updateClockDisplay()
 {
-    const QDateTime systemTime = QDateTime::currentDateTime();
+    if (!systemClockReadSuspended_) {
+        captureSystemClockSample();
+    }
+    const QDateTime systemTime = displayedSystemTime();
     systemTimeLabel_->setText(systemTime.toString(QStringLiteral("HH:mm:ss")));
     systemDateLabel_->setText(formattedDate(systemTime));
-    systemTimezoneLabel_->setText(systemTimeZoneText(systemTime));
+    systemTimezoneLabel_->setText(systemTimeZoneText());
 
     if (!referenceState_.hasReferenceTime || !referenceState_.beijingTime.isValid()) {
         timeLabel_->setText(QStringLiteral("--:--:--"));
@@ -1177,14 +1215,14 @@ QString MainWindow::formattedDate(const QDateTime &dateTime) const
     return locale.toString(dateTime.date(), QStringLiteral("ddd, MMM d, yyyy"));
 }
 
-QString MainWindow::systemTimeZoneText(const QDateTime &systemTime) const
+QString MainWindow::systemTimeZoneText() const
 {
-    QString zoneName = systemTime.timeZoneAbbreviation().trimmed();
+    QString zoneName = cachedZoneAbbreviation_;
     if (zoneName.isEmpty()) {
         zoneName = UiStrings::text(QStringLiteral("system.localZone"));
     }
 
-    const int offsetSeconds = systemTime.offsetFromUtc();
+    const int offsetSeconds = cachedOffsetSeconds_;
     const QChar sign = offsetSeconds < 0 ? QLatin1Char('-') : QLatin1Char('+');
     const int absoluteOffset = qAbs(offsetSeconds);
     const QString offsetText = QStringLiteral("UTC%1%2:%3")

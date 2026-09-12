@@ -8,7 +8,7 @@
 
 #include <QList>
 #include <QObject>
-#include <QThread>
+#include <QTimer>
 
 #include <atomic>
 #include <memory>
@@ -44,12 +44,17 @@ public:
 signals:
     void referenceChanged(const TimeSync::TrustedClockState &state);
     void operationFinished(const TimeSync::OperationResult &result);
+    void systemClockMutationStarted();
+    void systemClockMutationEnded();
 
 private slots:
     void handleNtpFinished(quint64 generation, const TimeSync::NtpQueryResult &result);
     void handleResume();
+    void handleMutationWatchdog();
 
 private:
+    static constexpr int SystemClockMutationTimeoutMs = 5000;
+
     [[nodiscard]] Result<QList<ServerEndpoint>> endpointsForConfig(const AppConfig &config) const;
     void startSystemTimeMutation(const QDateTime &targetUtc, const QString &source);
     void handleMutationFinished(quint64 generation,
@@ -70,7 +75,7 @@ private:
     bool busy_ = false;
     bool cancelRequested_ = false;
     std::shared_ptr<std::atomic_bool> mutationCancel_;
-    QThread *mutationThread_ = nullptr;
+    QTimer mutationWatchdog_;
 };
 
 } // namespace TimeSync

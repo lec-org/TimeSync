@@ -100,7 +100,7 @@
   "operation.failure.privilege": "Windows has not granted TimeSync permission to change the system time. Reopen the program and choose \"Yes\" in the Windows prompt. If it still fails, ask an administrator to grant your account the \"Change the system time\" user right under Local Security Policy > Local Policies > User Rights Assignment, then sign out and back in.",
   "operation.failure.systemRejected": "Windows blocked the system time change. A device or organization policy may prohibit this action. Contact an administrator to check the \"Change the system time\" user right.",
   "operation.failure.verification": "A system time change was attempted, but the result could not be verified. Run the sync again.",
-  "operation.failure.uncertain": "The operation may have changed system state, but its final result is uncertain. Check the current time and try again when safe.",
+  "operation.failure.uncertain": "The system time interface did not return in time. The window is responsive again; check whether the clock was updated.",
   "operation.failure.cancelled": "The operation was cancelled before any change was completed.",
   "operation.failure.invalidConfiguration": "The configuration is invalid. The existing settings were kept. Correct the values and try again.",
   "operation.failure.save": "The server list could not be saved. The existing list was kept. Check write access to the application folder and try again.",
