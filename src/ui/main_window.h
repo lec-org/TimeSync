@@ -68,8 +68,8 @@ private:
     QString formattedDate(const QDateTime &dateTime) const;
     QString systemTimeZoneText() const;
     QString timeDifferenceText(qint64 differenceMilliseconds) const;
-    void captureSystemClockSample();
-    QDateTime displayedSystemTime() const;
+    void captureTimeZoneSnapshot();
+    QDateTime displayedSystemWallClock(qint64 utcUnixMilliseconds) const;
     QString scheduleStatusText() const;
     void setTone(QWidget *widget, const QString &tone);
 
@@ -128,8 +128,6 @@ private:
 
     QTimer *clockTimer_ = nullptr;
     QElapsedTimer referenceElapsed_;
-    QElapsedTimer systemClockElapsed_;
-    QDateTime cachedSystemTime_;
     QString cachedZoneAbbreviation_;
     int cachedOffsetSeconds_ = 0;
     bool systemClockReadSuspended_ = false;

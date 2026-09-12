@@ -28,15 +28,26 @@ struct SystemTimeResult {
     bool uncertain = false;
 };
 
+struct TimeZoneSnapshot {
+    int offsetSeconds = 0;
+    QString abbreviation;
+};
+
 class WindowsSystemClock final {
 public:
     // SetSystemTime is verified against a monotonic anchor within this tolerance.
     static constexpr qint64 VerificationToleranceMs = 2000;
+    static constexpr int HelperProcessTimeoutMs = 5000;
 
     [[nodiscard]] static Result<QDateTime> readUtc();
+    [[nodiscard]] static qint64 utcUnixMilliseconds();
+    [[nodiscard]] static TimeZoneSnapshot queryTimeZone();
     [[nodiscard]] static SystemTimeResult setUtc(
         const QDateTime &targetUtc,
         const std::function<bool()> &cancelRequested = {});
+    [[nodiscard]] static SystemTimeResult setUtcViaHelperProcess(const QString &executablePath,
+                                                                 const QDateTime &targetUtc);
+    static int runSetSystemTimeCommand(qint64 utcUnixMilliseconds);
 };
 
 } // namespace TimeSync

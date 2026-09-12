@@ -3,6 +3,7 @@
 #include "../platform/cross_process_mutex.h"
 #include "../platform/windows_system_clock.h"
 
+#include <QCoreApplication>
 #include <QMetaObject>
 #include <QPointer>
 
@@ -167,9 +168,8 @@ void SyncCoordinator::startSystemTimeMutation(const QDateTime &targetUtc, const 
                 mutation->acquired = Result<void>::failure(
                     {ErrorCode::Cancelled, QStringLiteral("system-time mutation cancelled")});
             } else if (mutation->acquired) {
-                mutation->system = WindowsSystemClock::setUtc(targetUtc, [cancel] {
-                    return cancel->load(std::memory_order_relaxed);
-                });
+                mutation->system = WindowsSystemClock::setUtcViaHelperProcess(
+                    QCoreApplication::applicationFilePath(), targetUtc);
                 mutationMutex.release();
             }
             if (self.isNull()) {

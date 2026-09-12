@@ -1,7 +1,12 @@
 #include "windows_system_clock.h"
 
+#include "elevation_broker.h"
+
 #include <QElapsedTimer>
 #include <QTimeZone>
+
+#include <string>
+#include <thread>
 
 #ifdef Q_OS_WIN
 #    ifndef NOMINMAX
@@ -19,22 +24,52 @@ SystemTimeResult failure(const SystemTimeFailure kind, const quint32 nativeCode 
 }
 
 #ifdef Q_OS_WIN
+constexpr quint64 WindowsEpochOffsetMs = 11644473600000ULL;
+
+qint64 fileTimeToUnixMilliseconds(const FILETIME &fileTime)
+{
+    ULARGE_INTEGER value{};
+    value.LowPart = fileTime.dwLowDateTime;
+    value.HighPart = fileTime.dwHighDateTime;
+    const quint64 millisecondsSinceWindowsEpoch = value.QuadPart / 10000ULL;
+    if (millisecondsSinceWindowsEpoch < WindowsEpochOffsetMs) {
+        return 0;
+    }
+    return static_cast<qint64>(millisecondsSinceWindowsEpoch - WindowsEpochOffsetMs);
+}
+
 Result<QDateTime> readWindowsUtc()
 {
     FILETIME fileTime{};
     GetSystemTimeAsFileTime(&fileTime);
-    ULARGE_INTEGER value{};
-    value.LowPart = fileTime.dwLowDateTime;
-    value.HighPart = fileTime.dwHighDateTime;
-
-    constexpr quint64 WindowsEpochOffsetMs = 11644473600000ULL;
-    const quint64 millisecondsSinceWindowsEpoch = value.QuadPart / 10000ULL;
-    if (millisecondsSinceWindowsEpoch < WindowsEpochOffsetMs) {
+    const qint64 unixMs = fileTimeToUnixMilliseconds(fileTime);
+    if (unixMs <= 0) {
         return Result<QDateTime>::failure({ErrorCode::InternalError, QStringLiteral("invalid Windows time")});
     }
-    return Result<QDateTime>::success(QDateTime::fromMSecsSinceEpoch(
-        static_cast<qint64>(millisecondsSinceWindowsEpoch - WindowsEpochOffsetMs),
-        QTimeZone(QTimeZone::UTC)));
+    return Result<QDateTime>::success(
+        QDateTime::fromMSecsSinceEpoch(unixMs, QTimeZone(QTimeZone::UTC)));
+}
+
+int helperExitCode(const SystemTimeResult &result)
+{
+    if (result.succeeded) {
+        return 0;
+    }
+    return static_cast<int>(result.failure) + 1;
+}
+
+SystemTimeResult resultFromHelperExitCode(const DWORD exitCode)
+{
+    if (exitCode == 0) {
+        return {true, SystemTimeFailure::None, 0, false};
+    }
+    const int failureValue = static_cast<int>(exitCode) - 1;
+    if (failureValue < static_cast<int>(SystemTimeFailure::None)
+        || failureValue > static_cast<int>(SystemTimeFailure::UnsupportedPlatform)) {
+        return failure(SystemTimeFailure::UncertainState, exitCode, true);
+    }
+    const auto kind = static_cast<SystemTimeFailure>(failureValue);
+    return failure(kind, 0, kind == SystemTimeFailure::UncertainState);
 }
 
 Result<void> enableSystemTimePrivilege(quint32 *nativeCode)
@@ -163,6 +198,109 @@ SystemTimeResult WindowsSystemClock::setUtc(const QDateTime &targetUtc,
         return failure(SystemTimeFailure::VerificationFailed, 0, false);
     }
     return {true, SystemTimeFailure::None, 0, false};
+#endif
+}
+
+qint64 WindowsSystemClock::utcUnixMilliseconds()
+{
+#ifdef Q_OS_WIN
+    FILETIME fileTime{};
+    GetSystemTimeAsFileTime(&fileTime);
+    return fileTimeToUnixMilliseconds(fileTime);
+#else
+    return QDateTime::currentDateTimeUtc().toMSecsSinceEpoch();
+#endif
+}
+
+TimeZoneSnapshot WindowsSystemClock::queryTimeZone()
+{
+    TimeZoneSnapshot snapshot;
+#ifdef Q_OS_WIN
+    TIME_ZONE_INFORMATION info{};
+    const DWORD zoneId = GetTimeZoneInformation(&info);
+    LONG biasMinutes = info.Bias;
+    const wchar_t *name = info.StandardName;
+    if (zoneId == TIME_ZONE_ID_DAYLIGHT) {
+        biasMinutes += info.DaylightBias;
+        name = info.DaylightName;
+    } else if (zoneId == TIME_ZONE_ID_STANDARD) {
+        biasMinutes += info.StandardBias;
+    }
+    snapshot.offsetSeconds = static_cast<int>(-biasMinutes * 60);
+    snapshot.abbreviation = QString::fromWCharArray(name).trimmed();
+#else
+    const QDateTime local = QDateTime::currentDateTime();
+    snapshot.offsetSeconds = local.offsetFromUtc();
+    snapshot.abbreviation = local.timeZoneAbbreviation().trimmed();
+#endif
+    return snapshot;
+}
+
+SystemTimeResult WindowsSystemClock::setUtcViaHelperProcess(const QString &executablePath,
+                                                            const QDateTime &targetUtc)
+{
+#ifndef Q_OS_WIN
+    Q_UNUSED(executablePath)
+    Q_UNUSED(targetUtc)
+    return failure(SystemTimeFailure::UnsupportedPlatform);
+#else
+    if (executablePath.isEmpty() || !targetUtc.isValid()) {
+        return failure(SystemTimeFailure::InvalidInput);
+    }
+    const QDateTime utc = targetUtc.toUTC();
+    const QString command = QStringLiteral("%1 --set-system-time %2")
+                                .arg(ElevationBroker::quoteWindowsArgument(executablePath),
+                                     QString::number(utc.toMSecsSinceEpoch()));
+    std::wstring mutableCommand = command.toStdWString();
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    startup.dwFlags = STARTF_USESHOWWINDOW;
+    startup.wShowWindow = SW_HIDE;
+    PROCESS_INFORMATION process{};
+    if (!CreateProcessW(nullptr,
+                        mutableCommand.data(),
+                        nullptr,
+                        nullptr,
+                        FALSE,
+                        CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT,
+                        nullptr,
+                        nullptr,
+                        &startup,
+                        &process)) {
+        return failure(SystemTimeFailure::ApiRejected, GetLastError());
+    }
+    CloseHandle(process.hThread);
+    const DWORD waited = WaitForSingleObject(process.hProcess, static_cast<DWORD>(HelperProcessTimeoutMs));
+    DWORD exitCode = 0;
+    SystemTimeResult result = failure(SystemTimeFailure::UncertainState, 0, true);
+    if (waited == WAIT_OBJECT_0 && GetExitCodeProcess(process.hProcess, &exitCode)) {
+        result = resultFromHelperExitCode(exitCode);
+    } else if (waited == WAIT_TIMEOUT) {
+        result = failure(SystemTimeFailure::UncertainState, WAIT_TIMEOUT, true);
+        std::thread([handle = process.hProcess]() {
+            WaitForSingleObject(handle, INFINITE);
+            CloseHandle(handle);
+        }).detach();
+        process.hProcess = nullptr;
+    } else {
+        result = failure(SystemTimeFailure::UncertainState, GetLastError(), true);
+    }
+    if (process.hProcess != nullptr) {
+        CloseHandle(process.hProcess);
+    }
+    return result;
+#endif
+}
+
+int WindowsSystemClock::runSetSystemTimeCommand(const qint64 utcUnixMilliseconds)
+{
+    const QDateTime utc = QDateTime::fromMSecsSinceEpoch(utcUnixMilliseconds, QTimeZone(QTimeZone::UTC));
+    const SystemTimeResult result = setUtc(utc);
+#ifdef Q_OS_WIN
+    return helperExitCode(result);
+#else
+    Q_UNUSED(result)
+    return helperExitCode(failure(SystemTimeFailure::UnsupportedPlatform));
 #endif
 }
 

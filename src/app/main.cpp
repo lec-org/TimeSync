@@ -1,9 +1,13 @@
 #include "../cli/cli_parser.h"
 #include "../cli/cli_runner.h"
 #include "../platform/elevation_broker.h"
+#include "../platform/windows_system_clock.h"
 #include "app_controller.h"
 
+#include <QByteArray>
 #include <QTextStream>
+
+#include <cstring>
 
 #ifdef TIMESYNC_HAS_UI
 #    include "../ui/main_window.h"
@@ -14,6 +18,15 @@
 
 int main(int argc, char *argv[])
 {
+    if (argc >= 3 && std::strcmp(argv[1], "--set-system-time") == 0) {
+        bool ok = false;
+        const qint64 utcMs = QByteArray(argv[2]).toLongLong(&ok);
+        if (!ok) {
+            return static_cast<int>(TimeSync::SystemTimeFailure::InvalidInput) + 1;
+        }
+        return TimeSync::WindowsSystemClock::runSetSystemTimeCommand(utcMs);
+    }
+
 #ifdef TIMESYNC_HAS_UI
     QApplication application(argc, argv);
 #else

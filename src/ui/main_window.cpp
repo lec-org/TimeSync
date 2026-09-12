@@ -3,6 +3,8 @@
 #include "server_editor_dialog.h"
 #include "ui_strings.h"
 
+#include "../platform/windows_system_clock.h"
+
 #include <QAbstractButton>
 #include <QAbstractItemView>
 #include <QAbstractSpinBox>
@@ -28,6 +30,7 @@
 #include <QSpinBox>
 #include <QStyle>
 #include <QTimer>
+#include <QTimeZone>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -98,7 +101,7 @@ MainWindow::MainWindow(QWidget *parent)
     clockTimer_->setTimerType(Qt::PreciseTimer);
     clockTimer_->setInterval(250);
     connect(clockTimer_, &QTimer::timeout, this, &MainWindow::updateClockDisplay);
-    captureSystemClockSample();
+    captureTimeZoneSnapshot();
     clockTimer_->start();
     QTimer::singleShot(0, this, &MainWindow::updateResponsiveLayout);
 }
@@ -838,40 +841,36 @@ void MainWindow::setSystemClockReadSuspended(const bool suspended)
         return;
     }
     if (suspended) {
-        captureSystemClockSample();
+        captureTimeZoneSnapshot();
     }
     systemClockReadSuspended_ = suspended;
     if (!suspended) {
-        captureSystemClockSample();
+        captureTimeZoneSnapshot();
     }
     updateClockDisplay();
 }
 
-void MainWindow::captureSystemClockSample()
+void MainWindow::captureTimeZoneSnapshot()
 {
-    cachedSystemTime_ = QDateTime::currentDateTime();
-    cachedZoneAbbreviation_ = cachedSystemTime_.timeZoneAbbreviation().trimmed();
-    cachedOffsetSeconds_ = cachedSystemTime_.offsetFromUtc();
-    systemClockElapsed_.start();
+    const TimeSync::TimeZoneSnapshot snapshot = TimeSync::WindowsSystemClock::queryTimeZone();
+    cachedZoneAbbreviation_ = snapshot.abbreviation;
+    cachedOffsetSeconds_ = snapshot.offsetSeconds;
 }
 
-QDateTime MainWindow::displayedSystemTime() const
+QDateTime MainWindow::displayedSystemWallClock(const qint64 utcUnixMilliseconds) const
 {
-    if (!cachedSystemTime_.isValid()) {
-        return {};
-    }
-    if (!systemClockReadSuspended_ || !systemClockElapsed_.isValid()) {
-        return cachedSystemTime_;
-    }
-    return cachedSystemTime_.addMSecs(systemClockElapsed_.elapsed());
+    return QDateTime::fromMSecsSinceEpoch(
+        utcUnixMilliseconds + static_cast<qint64>(cachedOffsetSeconds_) * 1000,
+        QTimeZone(QTimeZone::UTC));
 }
 
 void MainWindow::updateClockDisplay()
 {
     if (!systemClockReadSuspended_) {
-        captureSystemClockSample();
+        captureTimeZoneSnapshot();
     }
-    const QDateTime systemTime = displayedSystemTime();
+    const qint64 systemUtcMs = TimeSync::WindowsSystemClock::utcUnixMilliseconds();
+    const QDateTime systemTime = displayedSystemWallClock(systemUtcMs);
     systemTimeLabel_->setText(systemTime.toString(QStringLiteral("HH:mm:ss")));
     systemDateLabel_->setText(formattedDate(systemTime));
     systemTimezoneLabel_->setText(systemTimeZoneText());
@@ -890,8 +889,7 @@ void MainWindow::updateClockDisplay()
                                       .toOffsetFromUtc(BeijingUtcOffsetSeconds);
     timeLabel_->setText(beijingTime.toString(QStringLiteral("HH:mm:ss")));
     dateLabel_->setText(formattedDate(beijingTime));
-    timeDifferenceLabel_->setText(timeDifferenceText(systemTime.toMSecsSinceEpoch()
-                                                       - beijingTime.toMSecsSinceEpoch()));
+    timeDifferenceLabel_->setText(timeDifferenceText(systemUtcMs - beijingTime.toMSecsSinceEpoch()));
     timeDifferenceLabel_->setVisible(true);
 
     const qint64 ageSeconds = referenceState_.calibrationAgeSeconds < 0
