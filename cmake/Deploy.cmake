@@ -16,6 +16,10 @@ if(WIN32 AND NOT TIMESYNC_STATIC_QT)
             COMMAND "${TIMESYNC_WINDEPLOYQT}"
                     --release
                     --no-translations
+                    --no-opengl-sw
+                    --no-system-d3d-compiler
+                    --no-svg
+                    --skip-plugin-types iconengines,generic,networkinformation,imageformats
                     --dir "${CMAKE_BINARY_DIR}/deploy"
                     "$<TARGET_FILE:TimeSync>"
             DEPENDS TimeSync

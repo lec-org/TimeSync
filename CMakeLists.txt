@@ -103,13 +103,24 @@ if(TIMESYNC_STATIC_QT)
     if(NOT TARGET Qt6::QSchannelBackendPlugin)
         message(FATAL_ERROR "Static Qt kit does not provide QSchannelBackendPlugin; rebuild Qt with Schannel")
     endif()
-    qt_import_plugins(TimeSync INCLUDE
-        Qt6::QWindowsIntegrationPlugin
-        Qt6::QSchannelBackendPlugin
+    qt_import_plugins(TimeSync
+        NO_DEFAULT
+        INCLUDE
+            Qt6::QWindowsIntegrationPlugin
+            Qt6::QSchannelBackendPlugin
     )
     if(MINGW)
         target_link_options(TimeSync PRIVATE -static -static-libgcc -static-libstdc++)
     endif()
+endif()
+
+if(MINGW)
+    target_compile_options(TimeSync PRIVATE
+        $<$<OR:$<CONFIG:Release>,$<CONFIG:MinSizeRel>>:-ffunction-sections;-fdata-sections>
+    )
+    target_link_options(TimeSync PRIVATE
+        $<$<OR:$<CONFIG:Release>,$<CONFIG:MinSizeRel>>:-Wl,--gc-sections;-s>
+    )
 endif()
 
 qt_finalize_target(TimeSync)
