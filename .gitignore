@@ -22,3 +22,6 @@ deploy/
 *.dll
 *.a
 *.lib
+
+.agent-context/
+.cortexkit/
