@@ -80,6 +80,7 @@ AppController::AppController(Ui::MainWindow *window,
         if (window_ != nullptr) {
             window_->setSystemClockReadSuspended(false);
         }
+        activeCoordinatorGeneration_ = 0;
     });
     coordinator_.attachPowerResumeMonitor(&powerMonitor_);
     connect(&powerMonitor_, &PowerResumeMonitor::resumed, this, &AppController::onPowerResumed);
@@ -253,6 +254,9 @@ void AppController::onManualSyncRequested()
                         Ui::OperationFailure::Unknown);
         return;
     }
+    if (coordinator_.isSystemWriteInProgress()) {
+        return;
+    }
     busyState_.syncing = true;
     window_->setBusyState(busyState_);
 
@@ -277,14 +281,16 @@ void AppController::onReferenceChanged(const TrustedClockState &state)
 
 void AppController::onOperationFinished(const OperationResult &result)
 {
-    if (shuttingDown_ || result.generation != activeCoordinatorGeneration_) {
+    if (shuttingDown_) {
+        return;
+    }
+    if (activeCoordinatorGeneration_ != 0 && result.generation != activeCoordinatorGeneration_) {
         return;
     }
     if (result.operation != OperationKind::Refresh
         && result.operation != OperationKind::ManualSync) {
         return;
     }
-    activeCoordinatorGeneration_ = 0;
 
     referenceLoading_ = false;
     if (result.succeeded) {
@@ -301,12 +307,16 @@ void AppController::onOperationFinished(const OperationResult &result)
         busyState_.refreshing = false;
         window_->setBusyState(busyState_);
         window_->setOperationResult(toUiOperationResult(result));
+        if (!coordinator_.isSystemWriteInProgress()) {
+            activeCoordinatorGeneration_ = 0;
+        }
         return;
     }
 
     busyState_.refreshing = false;
     window_->setBusyState(busyState_);
     window_->setOperationResult(toUiOperationResult(result));
+    activeCoordinatorGeneration_ = 0;
     maybeStartPendingRefresh();
 }
 

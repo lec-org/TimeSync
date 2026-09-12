@@ -37,6 +37,7 @@ public:
     void cancel();
 
     [[nodiscard]] bool isBusy() const noexcept { return busy_; }
+    [[nodiscard]] bool isSystemWriteInProgress() const noexcept { return mutationOutstanding_; }
     [[nodiscard]] bool canApplyFreshClockForManualSync() const;
     [[nodiscard]] const TrustedClock *trustedClock() const noexcept { return &clock_; }
     [[nodiscard]] TrustedClock *trustedClock() noexcept { return &clock_; }
@@ -58,6 +59,9 @@ private:
 
     [[nodiscard]] Result<QList<ServerEndpoint>> endpointsForConfig(const AppConfig &config) const;
     void startSystemTimeMutation(const QDateTime &targetUtc, const QString &source);
+    void handleMutationAccepted(quint64 generation,
+                                OperationKind operation,
+                                const QString &source);
     void handleMutationFinished(quint64 generation,
                                 OperationKind operation,
                                 const QString &source,
@@ -74,6 +78,7 @@ private:
     SyncMode mode_ = SyncMode::RefreshOnly;
     bool scheduled_ = false;
     bool busy_ = false;
+    bool mutationOutstanding_ = false;
     bool cancelRequested_ = false;
     std::shared_ptr<std::atomic_bool> mutationCancel_;
     QTimer mutationWatchdog_;

@@ -75,9 +75,9 @@ Result<quint64> SyncCoordinator::startSync(const AppConfig &config,
                                            const bool scheduled)
 {
     const bool manualSync = mode == SyncMode::AuthorizedDirect && !scheduled;
-    if (busy_) {
+    if (busy_ || mutationOutstanding_) {
         if (manualSync && mode_ == SyncMode::RefreshOnly && operation_ == OperationKind::Refresh
-            && !cancelRequested_) {
+            && !cancelRequested_ && !mutationOutstanding_) {
             operation_ = OperationKind::ManualSync;
             mode_ = SyncMode::AuthorizedDirect;
             scheduled_ = false;
@@ -183,7 +183,7 @@ void SyncCoordinator::startSystemTimeMutation(const QDateTime &targetUtc, const 
     mutationCancel_ = cancel;
 
     emit systemClockMutationStarted();
-    mutationWatchdog_.start();
+    mutationOutstanding_ = true;
 
     const QPointer<SyncCoordinator> self(this);
     try {
@@ -194,8 +194,21 @@ void SyncCoordinator::startSystemTimeMutation(const QDateTime &targetUtc, const 
                 mutation->acquired = Result<void>::failure(
                     {ErrorCode::Cancelled, QStringLiteral("system-time mutation cancelled")});
             } else if (mutation->acquired) {
-                mutation->system = WindowsSystemClock::setUtcViaHelperProcess(
+                SystemTimeHelperSession session = WindowsSystemClock::launchSetUtcHelper(
                     QCoreApplication::applicationFilePath(), targetUtc);
+                if (!session.launched) {
+                    mutation->system = session.launchResult;
+                } else if (self) {
+                    QMetaObject::invokeMethod(self.data(), [self, generation, operation, source] {
+                        if (self.isNull()) {
+                            return;
+                        }
+                        self->handleMutationAccepted(generation, operation, source);
+                    }, Qt::QueuedConnection);
+                    mutation->system = WindowsSystemClock::waitSetUtcHelper(session);
+                } else {
+                    mutation->system = WindowsSystemClock::waitSetUtcHelper(session);
+                }
                 mutationMutex.release();
             }
             if (self.isNull()) {
@@ -210,7 +223,7 @@ void SyncCoordinator::startSystemTimeMutation(const QDateTime &targetUtc, const 
             }, Qt::QueuedConnection);
         }).detach();
     } catch (const std::system_error &) {
-        mutationWatchdog_.stop();
+        mutationOutstanding_ = false;
         emit systemClockMutationEnded();
         finishFailure(ErrorCode::InternalError);
     }
@@ -227,40 +240,14 @@ void SyncCoordinator::handleMutationWatchdog()
     finishFailure(ErrorCode::UncertainState, true);
 }
 
-void SyncCoordinator::handleMutationFinished(const quint64 generation,
-                                              const OperationKind operation,
-                                              const QString &source,
-                                              const Result<void> &acquired,
-                                              const SystemTimeResult &systemResult)
+void SyncCoordinator::handleMutationAccepted(const quint64 generation,
+                                             const OperationKind operation,
+                                             const QString &source)
 {
-    mutationWatchdog_.stop();
-    emit systemClockMutationEnded();
     if (!busy_ || generation != operationGeneration_) {
         return;
     }
-    mutationCancel_.reset();
-    if (!acquired) {
-        finishFailure(acquired.error().code, acquired.error().uncertain);
-        return;
-    }
-    if (!systemResult.succeeded) {
-        const OperationFailure failure = operationFailureForSystemTimeFailure(
-            static_cast<int>(systemResult.failure));
-        OperationResult failed;
-        failed.generation = generation;
-        failed.operation = operation;
-        failed.failure = failure;
-        failed.exitCode = failure == OperationFailure::VerificationFailed
-            ? ExitCode::VerificationFailure
-            : (failure == OperationFailure::PrivilegeMissing
-                   ? ExitCode::PermissionFailure
-                   : exitCodeForError(systemResult.uncertain ? ErrorCode::UncertainState
-                                                              : ErrorCode::SystemTimeRejected));
-        failed.uncertain = systemResult.uncertain;
-        finish(failed);
-        return;
-    }
-
+    mutationWatchdog_.stop();
     OperationResult completed;
     completed.generation = generation;
     completed.operation = operation;
@@ -268,6 +255,69 @@ void SyncCoordinator::handleMutationFinished(const quint64 generation,
     completed.exitCode = ExitCode::Success;
     completed.source = source;
     finish(completed);
+}
+
+void SyncCoordinator::handleMutationFinished(const quint64 generation,
+                                              const OperationKind operation,
+                                              const QString &source,
+                                              const Result<void> &acquired,
+                                              const SystemTimeResult &systemResult)
+{
+    mutationWatchdog_.stop();
+    mutationCancel_.reset();
+    const bool failed = !acquired || !systemResult.succeeded;
+    if (generation == operationGeneration_ && failed) {
+        if (busy_) {
+            if (!acquired) {
+                finishFailure(acquired.error().code, acquired.error().uncertain);
+            } else {
+                const OperationFailure failure = operationFailureForSystemTimeFailure(
+                    static_cast<int>(systemResult.failure));
+                OperationResult failedResult;
+                failedResult.generation = generation;
+                failedResult.operation = operation;
+                failedResult.failure = failure;
+                failedResult.exitCode = failure == OperationFailure::VerificationFailed
+                    ? ExitCode::VerificationFailure
+                    : (failure == OperationFailure::PrivilegeMissing
+                           ? ExitCode::PermissionFailure
+                           : exitCodeForError(systemResult.uncertain ? ErrorCode::UncertainState
+                                                                      : ErrorCode::SystemTimeRejected));
+                failedResult.uncertain = systemResult.uncertain;
+                finish(failedResult);
+            }
+        } else {
+            OperationResult failedResult;
+            failedResult.generation = generation;
+            failedResult.operation = operation;
+            if (!acquired) {
+                failedResult.failure = operationFailureForError(acquired.error().code);
+                failedResult.exitCode = exitCodeForError(acquired.error().code);
+                failedResult.uncertain = acquired.error().uncertain;
+            } else {
+                failedResult.failure = operationFailureForSystemTimeFailure(
+                    static_cast<int>(systemResult.failure));
+                failedResult.exitCode = failedResult.failure == OperationFailure::VerificationFailed
+                    ? ExitCode::VerificationFailure
+                    : (failedResult.failure == OperationFailure::PrivilegeMissing
+                           ? ExitCode::PermissionFailure
+                           : exitCodeForError(systemResult.uncertain ? ErrorCode::UncertainState
+                                                                      : ErrorCode::SystemTimeRejected));
+                failedResult.uncertain = systemResult.uncertain;
+            }
+            emit operationFinished(failedResult);
+        }
+    } else if (generation == operationGeneration_ && busy_ && !failed) {
+        OperationResult completed;
+        completed.generation = generation;
+        completed.operation = operation;
+        completed.succeeded = true;
+        completed.exitCode = ExitCode::Success;
+        completed.source = source;
+        finish(completed);
+    }
+    mutationOutstanding_ = false;
+    emit systemClockMutationEnded();
 }
 
 void SyncCoordinator::finishFailure(const ErrorCode code, const bool uncertain)

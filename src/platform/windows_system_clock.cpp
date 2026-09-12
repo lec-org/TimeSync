@@ -236,16 +236,19 @@ TimeZoneSnapshot WindowsSystemClock::queryTimeZone()
     return snapshot;
 }
 
-SystemTimeResult WindowsSystemClock::setUtcViaHelperProcess(const QString &executablePath,
-                                                            const QDateTime &targetUtc)
+SystemTimeHelperSession WindowsSystemClock::launchSetUtcHelper(const QString &executablePath,
+                                                               const QDateTime &targetUtc)
 {
+    SystemTimeHelperSession session;
 #ifndef Q_OS_WIN
     Q_UNUSED(executablePath)
     Q_UNUSED(targetUtc)
-    return failure(SystemTimeFailure::UnsupportedPlatform);
+    session.launchResult = failure(SystemTimeFailure::UnsupportedPlatform);
+    return session;
 #else
     if (executablePath.isEmpty() || !targetUtc.isValid()) {
-        return failure(SystemTimeFailure::InvalidInput);
+        session.launchResult = failure(SystemTimeFailure::InvalidInput);
+        return session;
     }
     const QDateTime utc = targetUtc.toUTC();
     const QString command = QStringLiteral("%1 --set-system-time %2")
@@ -267,29 +270,58 @@ SystemTimeResult WindowsSystemClock::setUtcViaHelperProcess(const QString &execu
                         nullptr,
                         &startup,
                         &process)) {
-        return failure(SystemTimeFailure::ApiRejected, GetLastError());
+        session.launchResult = failure(SystemTimeFailure::ApiRejected, GetLastError());
+        return session;
     }
     CloseHandle(process.hThread);
-    const DWORD waited = WaitForSingleObject(process.hProcess, static_cast<DWORD>(HelperProcessTimeoutMs));
+    session.processHandle = reinterpret_cast<quintptr>(process.hProcess);
+    session.launched = true;
+    session.launchResult = {true, SystemTimeFailure::None, 0, false};
+    return session;
+#endif
+}
+
+SystemTimeResult WindowsSystemClock::waitSetUtcHelper(SystemTimeHelperSession &session)
+{
+#ifndef Q_OS_WIN
+    Q_UNUSED(session)
+    return failure(SystemTimeFailure::UnsupportedPlatform);
+#else
+    if (!session.launched || session.processHandle == 0) {
+        return session.launchResult.succeeded
+            ? failure(SystemTimeFailure::ApiRejected)
+            : session.launchResult;
+    }
+    HANDLE process = reinterpret_cast<HANDLE>(session.processHandle);
+    session.processHandle = 0;
+    const DWORD waited = WaitForSingleObject(process, static_cast<DWORD>(HelperProcessTimeoutMs));
     DWORD exitCode = 0;
     SystemTimeResult result = failure(SystemTimeFailure::UncertainState, 0, true);
-    if (waited == WAIT_OBJECT_0 && GetExitCodeProcess(process.hProcess, &exitCode)) {
+    if (waited == WAIT_OBJECT_0 && GetExitCodeProcess(process, &exitCode)) {
         result = resultFromHelperExitCode(exitCode);
+        CloseHandle(process);
     } else if (waited == WAIT_TIMEOUT) {
         result = failure(SystemTimeFailure::UncertainState, WAIT_TIMEOUT, true);
-        std::thread([handle = process.hProcess]() {
-            WaitForSingleObject(handle, INFINITE);
-            CloseHandle(handle);
+        std::thread([process]() {
+            WaitForSingleObject(process, INFINITE);
+            CloseHandle(process);
         }).detach();
-        process.hProcess = nullptr;
     } else {
         result = failure(SystemTimeFailure::UncertainState, GetLastError(), true);
-    }
-    if (process.hProcess != nullptr) {
-        CloseHandle(process.hProcess);
+        CloseHandle(process);
     }
     return result;
 #endif
+}
+
+SystemTimeResult WindowsSystemClock::setUtcViaHelperProcess(const QString &executablePath,
+                                                            const QDateTime &targetUtc)
+{
+    SystemTimeHelperSession session = launchSetUtcHelper(executablePath, targetUtc);
+    if (!session.launched) {
+        return session.launchResult;
+    }
+    return waitSetUtcHelper(session);
 }
 
 int WindowsSystemClock::runSetSystemTimeCommand(const qint64 utcUnixMilliseconds)

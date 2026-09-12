@@ -33,6 +33,12 @@ struct TimeZoneSnapshot {
     QString abbreviation;
 };
 
+struct SystemTimeHelperSession {
+    quintptr processHandle = 0;
+    SystemTimeResult launchResult;
+    bool launched = false;
+};
+
 class WindowsSystemClock final {
 public:
     // SetSystemTime is verified against a monotonic anchor within this tolerance.
@@ -45,6 +51,9 @@ public:
     [[nodiscard]] static SystemTimeResult setUtc(
         const QDateTime &targetUtc,
         const std::function<bool()> &cancelRequested = {});
+    [[nodiscard]] static SystemTimeHelperSession launchSetUtcHelper(const QString &executablePath,
+                                                                    const QDateTime &targetUtc);
+    [[nodiscard]] static SystemTimeResult waitSetUtcHelper(SystemTimeHelperSession &session);
     [[nodiscard]] static SystemTimeResult setUtcViaHelperProcess(const QString &executablePath,
                                                                  const QDateTime &targetUtc);
     static int runSetSystemTimeCommand(qint64 utcUnixMilliseconds);
