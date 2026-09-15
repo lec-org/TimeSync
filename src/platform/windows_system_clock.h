@@ -3,6 +3,7 @@
 #include "../core/result.h"
 
 #include <QDateTime>
+#include <QElapsedTimer>
 
 #include <functional>
 
@@ -33,30 +34,18 @@ struct TimeZoneSnapshot {
     QString abbreviation;
 };
 
-struct SystemTimeHelperSession {
-    quintptr processHandle = 0;
-    SystemTimeResult launchResult;
-    bool launched = false;
-};
-
 class WindowsSystemClock final {
 public:
     // SetSystemTime is verified against a monotonic anchor within this tolerance.
     static constexpr qint64 VerificationToleranceMs = 2000;
-    static constexpr int HelperProcessTimeoutMs = 5000;
 
     [[nodiscard]] static Result<QDateTime> readUtc();
     [[nodiscard]] static qint64 utcUnixMilliseconds();
     [[nodiscard]] static TimeZoneSnapshot queryTimeZone();
     [[nodiscard]] static SystemTimeResult setUtc(
-        const QDateTime &targetUtc,
-        const std::function<bool()> &cancelRequested = {});
-    [[nodiscard]] static SystemTimeHelperSession launchSetUtcHelper(const QString &executablePath,
-                                                                    const QDateTime &targetUtc);
-    [[nodiscard]] static SystemTimeResult waitSetUtcHelper(SystemTimeHelperSession &session);
-    [[nodiscard]] static SystemTimeResult setUtcViaHelperProcess(const QString &executablePath,
-                                                                 const QDateTime &targetUtc);
-    static int runSetSystemTimeCommand(qint64 utcUnixMilliseconds);
+        const QDateTime &baseUtc,
+        const std::function<bool()> &cancelRequested = {},
+        const QElapsedTimer *sinceCapture = nullptr);
 };
 
 } // namespace TimeSync

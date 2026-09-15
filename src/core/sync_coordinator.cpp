@@ -3,7 +3,7 @@
 #include "../platform/cross_process_mutex.h"
 #include "../platform/windows_system_clock.h"
 
-#include <QCoreApplication>
+#include <QElapsedTimer>
 #include <QMetaObject>
 #include <QPointer>
 
@@ -182,33 +182,26 @@ void SyncCoordinator::startSystemTimeMutation(const QDateTime &targetUtc, const 
     const std::shared_ptr<MutationResult> mutation = std::make_shared<MutationResult>();
     mutationCancel_ = cancel;
 
+    QElapsedTimer sinceCapture;
+    sinceCapture.start();
     emit systemClockMutationStarted();
     mutationOutstanding_ = true;
+    mutationWatchdog_.start();
+    handleMutationAccepted(generation, operation, source);
 
     const QPointer<SyncCoordinator> self(this);
     try {
-        std::thread([self, targetUtc, cancel, mutation, generation, operation, source] {
+        std::thread([self, targetUtc, sinceCapture, cancel, mutation, generation, operation, source] {
             CrossProcessMutex mutationMutex;
             mutation->acquired = mutationMutex.acquire(CrossProcessMutex::DefaultWaitMs);
             if (!mutation->acquired && cancel->load(std::memory_order_relaxed)) {
                 mutation->acquired = Result<void>::failure(
                     {ErrorCode::Cancelled, QStringLiteral("system-time mutation cancelled")});
             } else if (mutation->acquired) {
-                SystemTimeHelperSession session = WindowsSystemClock::launchSetUtcHelper(
-                    QCoreApplication::applicationFilePath(), targetUtc);
-                if (!session.launched) {
-                    mutation->system = session.launchResult;
-                } else if (self) {
-                    QMetaObject::invokeMethod(self.data(), [self, generation, operation, source] {
-                        if (self.isNull()) {
-                            return;
-                        }
-                        self->handleMutationAccepted(generation, operation, source);
-                    }, Qt::QueuedConnection);
-                    mutation->system = WindowsSystemClock::waitSetUtcHelper(session);
-                } else {
-                    mutation->system = WindowsSystemClock::waitSetUtcHelper(session);
-                }
+                mutation->system = WindowsSystemClock::setUtc(
+                    targetUtc,
+                    [cancel] { return cancel->load(std::memory_order_relaxed); },
+                    &sinceCapture);
                 mutationMutex.release();
             }
             if (self.isNull()) {
@@ -223,21 +216,39 @@ void SyncCoordinator::startSystemTimeMutation(const QDateTime &targetUtc, const 
             }, Qt::QueuedConnection);
         }).detach();
     } catch (const std::system_error &) {
+        mutationWatchdog_.stop();
         mutationOutstanding_ = false;
         emit systemClockMutationEnded();
-        finishFailure(ErrorCode::InternalError);
+        OperationResult failed;
+        failed.generation = generation;
+        failed.operation = operation;
+        failed.failure = operationFailureForError(ErrorCode::InternalError);
+        failed.exitCode = exitCodeForError(ErrorCode::InternalError);
+        emit operationFinished(failed);
     }
 }
 
 void SyncCoordinator::handleMutationWatchdog()
 {
-    if (!busy_) {
-        return;
-    }
     if (mutationCancel_) {
         mutationCancel_->store(true, std::memory_order_relaxed);
     }
-    finishFailure(ErrorCode::UncertainState, true);
+    if (busy_) {
+        finishFailure(ErrorCode::UncertainState, true);
+        return;
+    }
+    if (!mutationOutstanding_) {
+        return;
+    }
+    OperationResult failed;
+    failed.generation = operationGeneration_;
+    failed.operation = operation_;
+    failed.failure = operationFailureForError(ErrorCode::UncertainState);
+    failed.exitCode = exitCodeForError(ErrorCode::UncertainState);
+    failed.uncertain = true;
+    mutationOutstanding_ = false;
+    emit operationFinished(failed);
+    emit systemClockMutationEnded();
 }
 
 void SyncCoordinator::handleMutationAccepted(const quint64 generation,
@@ -247,7 +258,6 @@ void SyncCoordinator::handleMutationAccepted(const quint64 generation,
     if (!busy_ || generation != operationGeneration_) {
         return;
     }
-    mutationWatchdog_.stop();
     OperationResult completed;
     completed.generation = generation;
     completed.operation = operation;
@@ -336,7 +346,9 @@ void SyncCoordinator::finish(const OperationResult &result)
     if (!busy_) {
         return;
     }
-    mutationWatchdog_.stop();
+    if (!mutationOutstanding_) {
+        mutationWatchdog_.stop();
+    }
     busy_ = false;
     cancelRequested_ = false;
     emit operationFinished(result);

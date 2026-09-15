@@ -259,18 +259,16 @@ void AppController::onManualSyncRequested()
     if (coordinator_.isSystemWriteInProgress()) {
         return;
     }
-    busyState_.syncing = true;
-    window_->setBusyState(busyState_);
 
     const Result<quint64> started =
         coordinator_.startSync(config_, SyncMode::AuthorizedDirect, false);
     if (!started) {
-        busyState_.syncing = false;
-        window_->setBusyState(busyState_);
         emitUiErrorOperation(Ui::OperationKind::ManualSync, started.error());
         return;
     }
     activeCoordinatorGeneration_ = started.value();
+    busyState_.syncing = coordinator_.isBusy();
+    window_->setBusyState(busyState_);
 }
 
 void AppController::onReferenceChanged(const TrustedClockState &state)
