@@ -1156,7 +1156,9 @@ void MainWindow::showServerEditor()
 
 void MainWindow::showOperationBanner(const OperationResult &result)
 {
-    const bool warning = !result.success && result.failure == OperationFailure::Cancelled;
+    const bool warning = !result.success
+        && (result.failure == OperationFailure::Cancelled
+            || result.failure == OperationFailure::SystemTimeConfirming);
     const QString tone = result.success ? QStringLiteral("success")
                                        : warning ? QStringLiteral("warning") : QStringLiteral("error");
     setTone(operationBanner_, tone);
@@ -1229,6 +1231,8 @@ QString MainWindow::operationMessage(const OperationResult &result) const
         return UiStrings::text(QStringLiteral("operation.failure.uncertain"));
     case OperationFailure::Cancelled:
         return UiStrings::text(QStringLiteral("operation.failure.cancelled"));
+    case OperationFailure::SystemTimeConfirming:
+        return UiStrings::text(QStringLiteral("operation.failure.systemTimeConfirming"));
     case OperationFailure::InvalidConfiguration:
         return UiStrings::text(QStringLiteral("operation.failure.invalidConfiguration"));
     case OperationFailure::SaveFailed:

@@ -110,6 +110,7 @@
   "operation.failure.verification": "A system time change was attempted, but the result could not be verified. Run the sync again.",
   "operation.failure.uncertain": "The system time interface did not return in time. The window is responsive again; check whether the clock was updated.",
   "operation.failure.cancelled": "The operation was cancelled before any change was completed.",
+  "operation.failure.systemTimeConfirming": "The system time is still being confirmed. Try again in a moment.",
   "operation.failure.invalidConfiguration": "The configuration is invalid. The existing settings were kept. Correct the values and try again.",
   "operation.failure.save": "The server list could not be saved. The existing list was kept. Check write access to the application folder and try again.",
   "operation.failure.scheduleAuthorization": "Schedule authorization was cancelled. The existing schedule was kept. Try again and allow authorization when you are ready.",

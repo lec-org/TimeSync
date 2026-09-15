@@ -110,6 +110,7 @@
   "operation.failure.verification": "系统时间已尝试修改，但结果检查未通过。请重新同步。",
   "operation.failure.uncertain": "系统时间接口没有及时返回。窗口已恢复响应，请查看系统时钟是否已经校准。",
   "operation.failure.cancelled": "操作已取消，未完成任何更改。",
+  "operation.failure.systemTimeConfirming": "系统时间正在确认，请稍后再试。",
   "operation.failure.invalidConfiguration": "配置内容无效，原有设置保持不变。请修正后重试。",
   "operation.failure.save": "无法保存服务器列表，原有列表保持不变。请检查程序目录的写入权限后重试。",
   "operation.failure.scheduleAuthorization": "计划任务授权已取消，原有计划保持不变。需要更新时，请重试并允许授权。",

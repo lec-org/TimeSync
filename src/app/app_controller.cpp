@@ -18,7 +18,7 @@ Ui::OperationFailure mapBackendFailure(const OperationFailure failure)
     case OperationFailure::None:
         return Ui::OperationFailure::None;
     case OperationFailure::Busy:
-        return Ui::OperationFailure::Unknown;
+        return Ui::OperationFailure::SystemTimeConfirming;
     case OperationFailure::RemoteTimeUnavailable:
         return Ui::OperationFailure::RemoteTimeUnavailable;
     case OperationFailure::ServerUnavailable:
@@ -224,8 +224,20 @@ void AppController::setLoadingState(const bool loading)
 
 void AppController::startRefresh()
 {
-    if (!configReady_ || shuttingDown_ || coordinator_.isBusy() || elevationActive_
-        || scheduleMutationActive_) {
+    if (!configReady_ || shuttingDown_ || elevationActive_ || scheduleMutationActive_) {
+        return;
+    }
+    if (coordinator_.isSystemWriteInProgress()) {
+        busyState_.refreshing = false;
+        window_->setBusyState(busyState_);
+        emitUiOperation(Ui::OperationKind::Refresh,
+                        false,
+                        Ui::OperationFailure::SystemTimeConfirming);
+        return;
+    }
+    if (coordinator_.isBusy()) {
+        busyState_.refreshing = false;
+        window_->setBusyState(busyState_);
         return;
     }
 
@@ -237,6 +249,12 @@ void AppController::startRefresh()
         applyReferenceState();
         busyState_.refreshing = false;
         window_->setBusyState(busyState_);
+        if (started.error().code == ErrorCode::Busy) {
+            emitUiOperation(Ui::OperationKind::Refresh,
+                            false,
+                            Ui::OperationFailure::SystemTimeConfirming);
+            return;
+        }
         emitUiErrorOperation(Ui::OperationKind::Refresh, started.error());
         return;
     }
@@ -468,6 +486,7 @@ Ui::OperationFailure AppController::mapErrorToUiFailure(const ErrorCode code,
     case ErrorCode::UncertainState:
         return Ui::OperationFailure::UncertainState;
     case ErrorCode::Busy:
+        return Ui::OperationFailure::SystemTimeConfirming;
     case ErrorCode::ElevationFailed:
     case ErrorCode::UnsupportedPlatform:
     case ErrorCode::InternalError:

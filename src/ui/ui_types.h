@@ -53,6 +53,7 @@ enum class OperationFailure {
     ScheduleUpdateFailed,
     ScheduleRemoveFailed,
     UncertainState,
+    SystemTimeConfirming,
     Unknown,
 };
 
