@@ -74,11 +74,13 @@ AppController::AppController(Ui::MainWindow *window,
     connect(&coordinator_, &SyncCoordinator::systemClockMutationStarted, this, [this] {
         if (window_ != nullptr) {
             window_->setSystemClockReadSuspended(true);
+            window_->setSystemClockFollowsTrusted(true);
         }
     });
     connect(&coordinator_, &SyncCoordinator::systemClockMutationEnded, this, [this] {
         if (window_ != nullptr) {
             window_->setSystemClockReadSuspended(false);
+            window_->setSystemClockFollowsTrusted(false);
         }
         activeCoordinatorGeneration_ = 0;
     });

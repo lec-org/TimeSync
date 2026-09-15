@@ -850,6 +850,15 @@ void MainWindow::setSystemClockReadSuspended(const bool suspended)
     updateClockDisplay();
 }
 
+void MainWindow::setSystemClockFollowsTrusted(const bool follow)
+{
+    if (follow == systemClockFollowsTrusted_) {
+        return;
+    }
+    systemClockFollowsTrusted_ = follow;
+    updateClockDisplay();
+}
+
 void MainWindow::captureTimeZoneSnapshot()
 {
     const TimeSync::TimeZoneSnapshot snapshot = TimeSync::WindowsSystemClock::queryTimeZone();
@@ -869,13 +878,13 @@ void MainWindow::updateClockDisplay()
     if (!systemClockReadSuspended_) {
         captureTimeZoneSnapshot();
     }
-    const qint64 systemUtcMs = TimeSync::WindowsSystemClock::utcUnixMilliseconds();
-    const QDateTime systemTime = displayedSystemWallClock(systemUtcMs);
-    systemTimeLabel_->setText(systemTime.toString(QStringLiteral("HH:mm:ss")));
-    systemDateLabel_->setText(formattedDate(systemTime));
+    qint64 systemUtcMs = TimeSync::WindowsSystemClock::utcUnixMilliseconds();
     systemTimezoneLabel_->setText(systemTimeZoneText());
 
     if (!referenceState_.hasReferenceTime || !referenceState_.beijingTime.isValid()) {
+        const QDateTime systemTime = displayedSystemWallClock(systemUtcMs);
+        systemTimeLabel_->setText(systemTime.toString(QStringLiteral("HH:mm:ss")));
+        systemDateLabel_->setText(formattedDate(systemTime));
         timeLabel_->setText(QStringLiteral("--:--:--"));
         dateLabel_->setText(UiStrings::text(QStringLiteral("reference.dateUnavailable")));
         calibrationValueLabel_->setText(UiStrings::text(QStringLiteral("reference.never")));
@@ -887,9 +896,16 @@ void MainWindow::updateClockDisplay()
     const QDateTime beijingTime = referenceState_.beijingTime
                                       .addMSecs(elapsedMilliseconds)
                                       .toOffsetFromUtc(BeijingUtcOffsetSeconds);
+    const qint64 beijingUtcMs = beijingTime.toMSecsSinceEpoch();
+    if (systemClockFollowsTrusted_) {
+        systemUtcMs = beijingUtcMs;
+    }
+    const QDateTime systemTime = displayedSystemWallClock(systemUtcMs);
+    systemTimeLabel_->setText(systemTime.toString(QStringLiteral("HH:mm:ss")));
+    systemDateLabel_->setText(formattedDate(systemTime));
     timeLabel_->setText(beijingTime.toString(QStringLiteral("HH:mm:ss")));
     dateLabel_->setText(formattedDate(beijingTime));
-    timeDifferenceLabel_->setText(timeDifferenceText(systemUtcMs - beijingTime.toMSecsSinceEpoch()));
+    timeDifferenceLabel_->setText(timeDifferenceText(systemUtcMs - beijingUtcMs));
     timeDifferenceLabel_->setVisible(true);
 
     const qint64 ageSeconds = referenceState_.calibrationAgeSeconds < 0

@@ -46,6 +46,7 @@ public slots:
     void setOperationResult(const TimeSync::Ui::OperationResult &result);
     void setLanguage(const QString &languageTag);
     void setSystemClockReadSuspended(bool suspended);
+    void setSystemClockFollowsTrusted(bool follow);
 
 protected:
     void resizeEvent(QResizeEvent *event) override;
@@ -131,6 +132,7 @@ private:
     QString cachedZoneAbbreviation_;
     int cachedOffsetSeconds_ = 0;
     bool systemClockReadSuspended_ = false;
+    bool systemClockFollowsTrusted_ = false;
     ReferenceState referenceState_;
     BusyState busyState_;
     ScheduleState scheduleState_;
