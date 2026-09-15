@@ -66,6 +66,7 @@ private:
     void showAboutDialog();
     void applyHeaderLogo();
     void showOperationBanner(const OperationResult &result);
+    bool shouldShowOperationBanner(const OperationResult &result) const;
     QString operationMessage(const OperationResult &result) const;
     QString referenceDetail() const;
     QString calibrationAgeText(qint64 totalSeconds) const;
@@ -145,6 +146,7 @@ private:
     QStringList defaultServers_;
     OperationResult lastOperationResult_;
     bool hasOperationResult_ = false;
+    int bannerGeneration_ = 0;
     ServerEditorDialog *serverEditor_ = nullptr;
     AboutDialog *aboutDialog_ = nullptr;
 };

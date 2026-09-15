@@ -192,7 +192,8 @@ void MainWindow::setDefaultServerList(const QStringList &servers)
 void MainWindow::setOperationResult(const OperationResult &result)
 {
     lastOperationResult_ = result;
-    hasOperationResult_ = !result.success;
+    const bool showBanner = shouldShowOperationBanner(result);
+    hasOperationResult_ = showBanner;
     switch (result.operation) {
     case OperationKind::Refresh:
         busyState_.refreshing = false;
@@ -221,10 +222,11 @@ void MainWindow::setOperationResult(const OperationResult &result)
     }
 
     updateBusyDisplay();
-    if (result.success) {
-        operationBanner_->hide();
-    } else {
+    if (showBanner) {
         showOperationBanner(result);
+    } else {
+        ++bannerGeneration_;
+        operationBanner_->hide();
     }
 }
 
@@ -436,8 +438,8 @@ void MainWindow::buildUi()
     operationBanner_->setObjectName(QStringLiteral("operationBanner"));
     operationBanner_->setVisible(false);
     auto *bannerLayout = new QHBoxLayout(operationBanner_);
-    bannerLayout->setContentsMargins(6, 3, 0, 3);
-    bannerLayout->setSpacing(6);
+    bannerLayout->setContentsMargins(12, 8, 4, 8);
+    bannerLayout->setSpacing(8);
     operationIconLabel_ = new QLabel(operationBanner_);
     operationIconLabel_->setFixedSize(18, 18);
     operationIconLabel_->setAlignment(Qt::AlignCenter);
@@ -549,7 +551,11 @@ void MainWindow::buildUi()
     rootLayout->addWidget(contentScrollArea_, 1);
     setCentralWidget(central);
 
-    connect(dismissBannerButton_, &QPushButton::clicked, operationBanner_, &QWidget::hide);
+    connect(dismissBannerButton_, &QPushButton::clicked, this, [this] {
+        ++bannerGeneration_;
+        hasOperationResult_ = false;
+        operationBanner_->hide();
+    });
     connect(languageCombo_, &QComboBox::currentIndexChanged, this, [this](int index) {
         if (index < 0) {
             return;
@@ -711,11 +717,17 @@ void MainWindow::applyStyle()
         QLabel#statusBadge[tone="warning"] { color: #8A4B08; background: #FFF2D8; }
         QLabel#statusBadge[tone="error"] { color: #A61B12; background: #FDEBEA; }
         QFrame#operationBanner {
-            background: transparent;
+            background: #EEF1F4;
             border: 0;
-            border-top: 1px solid #E6E9ED;
+            border-radius: 8px;
         }
-        QLabel#noticeText { color: #667085; font-size: 12px; }
+        QFrame#operationBanner[tone="success"] { background: #E8F6EE; }
+        QFrame#operationBanner[tone="warning"] { background: #FFF2D8; }
+        QFrame#operationBanner[tone="error"] { background: #FDEBEA; }
+        QLabel#noticeText { color: #344054; font-size: 13px; font-weight: 600; }
+        QLabel#noticeText[tone="success"] { color: #176B43; }
+        QLabel#noticeText[tone="warning"] { color: #8A4B08; }
+        QLabel#noticeText[tone="error"] { color: #A61B12; }
         QPushButton, QToolButton {
             min-height: 40px;
             padding: 0 14px;
@@ -1148,12 +1160,39 @@ void MainWindow::showOperationBanner(const OperationResult &result)
     const QString tone = result.success ? QStringLiteral("success")
                                        : warning ? QStringLiteral("warning") : QStringLiteral("error");
     setTone(operationBanner_, tone);
+    setTone(operationTextLabel_, tone);
     operationTextLabel_->setText(operationMessage(result));
-    const QStyle::StandardPixmap icon = result.success
-        ? QStyle::SP_DialogApplyButton
-        : warning ? QStyle::SP_MessageBoxWarning : QStyle::SP_MessageBoxCritical;
-    operationIconLabel_->setPixmap(style()->standardIcon(icon).pixmap(18, 18));
+    operationIconLabel_->hide();
     operationBanner_->setVisible(true);
+    ++bannerGeneration_;
+    if (!result.success) {
+        return;
+    }
+    const int generation = bannerGeneration_;
+    QTimer::singleShot(8000, this, [this, generation] {
+        if (generation != bannerGeneration_ || !lastOperationResult_.success) {
+            return;
+        }
+        hasOperationResult_ = false;
+        operationBanner_->hide();
+    });
+}
+
+bool MainWindow::shouldShowOperationBanner(const OperationResult &result) const
+{
+    if (!result.success) {
+        return true;
+    }
+    switch (result.operation) {
+    case OperationKind::ManualSync:
+    case OperationKind::ChangeSchedule:
+    case OperationKind::RemoveSchedule:
+        return true;
+    case OperationKind::Refresh:
+    case OperationKind::SaveServers:
+        return false;
+    }
+    return false;
 }
 
 QString MainWindow::operationMessage(const OperationResult &result) const
