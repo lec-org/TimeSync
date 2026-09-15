@@ -1,5 +1,7 @@
 #include "main_window.h"
 
+#include "about_dialog.h"
+#include "brand_assets.h"
 #include "server_editor_dialog.h"
 #include "ui_strings.h"
 
@@ -16,11 +18,13 @@
 #include <QFrame>
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QLabel>
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QLocale>
 #include <QMessageBox>
+#include <QPixmap>
 #include <QPushButton>
 #include <QResizeEvent>
 #include <QScrollArea>
@@ -88,6 +92,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     setMinimumSize(600, 440);
     resize(820, 600);
+    setWindowIcon(QIcon(QStringLiteral(":/branding/lec-logo.png")));
     buildUi();
     applyStyle();
     retranslateUi();
@@ -248,19 +253,29 @@ void MainWindow::buildUi()
 
     headerFrame_ = new QFrame(central);
     headerFrame_->setObjectName(QStringLiteral("headerFrame"));
-    headerFrame_->setMinimumHeight(56);
+    headerFrame_->setMinimumHeight(64);
     auto *headerLayout = new QHBoxLayout(headerFrame_);
-    headerLayout->setContentsMargins(18, 8, 18, 8);
-    headerLayout->setSpacing(10);
+    headerLayout->setContentsMargins(20, 10, 20, 10);
+    headerLayout->setSpacing(12);
+    logoLabel_ = new QLabel(headerFrame_);
+    logoLabel_->setObjectName(QStringLiteral("brandLogo"));
+    logoLabel_->setAlignment(Qt::AlignCenter);
+    applyHeaderLogo();
     appTitleLabel_ = new QLabel(headerFrame_);
     appTitleLabel_->setObjectName(QStringLiteral("appTitle"));
+    aboutButton_ = new QPushButton(headerFrame_);
+    aboutButton_->setObjectName(QStringLiteral("secondaryButton"));
+    aboutButton_->setCursor(Qt::PointingHandCursor);
+    aboutButton_->setMinimumSize(72, 40);
     languageLabel_ = new QLabel(headerFrame_);
     languageLabel_->setObjectName(QStringLiteral("fieldLabel"));
     languageCombo_ = new QComboBox(headerFrame_);
     languageCombo_->setMinimumSize(124, 40);
     languageLabel_->setBuddy(languageCombo_);
+    headerLayout->addWidget(logoLabel_);
     headerLayout->addWidget(appTitleLabel_);
     headerLayout->addStretch(1);
+    headerLayout->addWidget(aboutButton_);
     headerLayout->addWidget(languageLabel_);
     headerLayout->addWidget(languageCombo_);
     rootLayout->addWidget(headerFrame_);
@@ -303,7 +318,7 @@ void MainWindow::buildUi()
     timeLabel_ = new QLabel(standardClockFrame_);
     timeLabel_->setObjectName(QStringLiteral("timeLabel"));
     timeLabel_->setAlignment(Qt::AlignCenter);
-    timeLabel_->setMinimumHeight(44);
+    timeLabel_->setMinimumHeight(48);
     dateLabel_ = new QLabel(standardClockFrame_);
     dateLabel_->setObjectName(QStringLiteral("dateLabel"));
     dateLabel_->setAlignment(Qt::AlignCenter);
@@ -407,12 +422,11 @@ void MainWindow::buildUi()
     referenceButtonLayout->addStretch(1);
     refreshButton_ = new QPushButton(referencePanel_);
     refreshButton_->setObjectName(QStringLiteral("secondaryButton"));
-    refreshButton_->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
-    refreshButton_->setIconSize(QSize(18, 18));
+    refreshButton_->setCursor(Qt::PointingHandCursor);
     syncButton_ = new QPushButton(referencePanel_);
     syncButton_->setObjectName(QStringLiteral("primaryButton"));
-    syncButton_->setIcon(style()->standardIcon(QStyle::SP_DialogApplyButton));
-    syncButton_->setIconSize(QSize(18, 18));
+    syncButton_->setCursor(Qt::PointingHandCursor);
+    syncButton_->setMinimumWidth(220);
     referenceButtonLayout->addWidget(refreshButton_);
     referenceButtonLayout->addWidget(syncButton_);
     referenceButtonLayout->addStretch(1);
@@ -433,8 +447,7 @@ void MainWindow::buildUi()
     dismissBannerButton_ = new QPushButton(operationBanner_);
     dismissBannerButton_->setObjectName(QStringLiteral("bannerDismissButton"));
     dismissBannerButton_->setFlat(true);
-    dismissBannerButton_->setIcon(style()->standardIcon(QStyle::SP_DialogCloseButton));
-    dismissBannerButton_->setIconSize(QSize(16, 16));
+    dismissBannerButton_->setText(QStringLiteral("×"));
     dismissBannerButton_->setFixedSize(40, 40);
     bannerLayout->addWidget(operationIconLabel_);
     bannerLayout->addWidget(operationTextLabel_, 1);
@@ -475,12 +488,10 @@ void MainWindow::buildUi()
     scheduleStatusValueLabel_->setWordWrap(true);
     applyScheduleButton_ = new QPushButton(schedulePanel_);
     applyScheduleButton_->setObjectName(QStringLiteral("primaryButton"));
-    applyScheduleButton_->setIcon(style()->standardIcon(QStyle::SP_DialogApplyButton));
-    applyScheduleButton_->setIconSize(QSize(18, 18));
+    applyScheduleButton_->setCursor(Qt::PointingHandCursor);
     removeScheduleButton_ = new QPushButton(schedulePanel_);
     removeScheduleButton_->setObjectName(QStringLiteral("dangerButton"));
-    removeScheduleButton_->setIcon(style()->standardIcon(QStyle::SP_TrashIcon));
-    removeScheduleButton_->setIconSize(QSize(18, 18));
+    removeScheduleButton_->setCursor(Qt::PointingHandCursor);
     scheduleLayout->addWidget(scheduleHeadingLabel_, 0, 0, 1, 2);
     scheduleLayout->addWidget(scheduleEnabledCheck_, 1, 0, 1, 2);
     scheduleLayout->addWidget(intervalLabel_, 2, 0);
@@ -521,8 +532,7 @@ void MainWindow::buildUi()
     serversLayout->addWidget(serverList_, 1);
     editServersButton_ = new QPushButton(serversPanel_);
     editServersButton_->setObjectName(QStringLiteral("secondaryButton"));
-    editServersButton_->setIcon(style()->standardIcon(QStyle::SP_FileDialogDetailedView));
-    editServersButton_->setIconSize(QSize(18, 18));
+    editServersButton_->setCursor(Qt::PointingHandCursor);
     serversLayout->addWidget(editServersButton_, 0, Qt::AlignRight);
 
     lowerGrid_->addWidget(schedulePanel_, 0, 0);
@@ -599,7 +609,9 @@ void MainWindow::buildUi()
         emit scheduleRemoveRequested();
     });
     connect(editServersButton_, &QPushButton::clicked, this, &MainWindow::showServerEditor);
+    connect(aboutButton_, &QPushButton::clicked, this, &MainWindow::showAboutDialog);
 
+    QWidget::setTabOrder(aboutButton_, languageCombo_);
     QWidget::setTabOrder(languageCombo_, refreshButton_);
     QWidget::setTabOrder(refreshButton_, syncButton_);
     QWidget::setTabOrder(syncButton_, scheduleEnabledCheck_);
@@ -619,33 +631,33 @@ void MainWindow::applyStyle()
             font-size: 14px;
         }
         QMainWindow#mainWindow, QScrollArea#contentScrollArea, QScrollArea#contentScrollArea > QWidget > QWidget {
-            background: #F4F6F8;
+            background: #F3F6FA;
         }
         QScrollArea#contentScrollArea { border: 0; }
         QFrame#headerFrame {
             background: #FFFFFF;
             border: 0;
-            border-bottom: 1px solid #DDE2E8;
+            border-bottom: 2px solid #005AAE;
         }
         QLabel#appTitle {
             color: #172033;
-            font-size: 18px;
+            font-size: 20px;
             font-weight: 600;
         }
         QFrame#surfacePanel {
             background: #FFFFFF;
-            border: 1px solid #DDE2E8;
-            border-radius: 8px;
+            border: 1px solid #D7E2EE;
+            border-radius: 10px;
         }
         QFrame#standardClock {
-            background: #F6F8FB;
-            border: 1px solid #DDE2E8;
-            border-radius: 6px;
+            background: #EEF5FC;
+            border: 1px solid #C5DCF0;
+            border-radius: 10px;
         }
         QFrame#systemClock {
-            background: #FFFFFF;
+            background: #F8FAFC;
             border: 1px solid #E6E9ED;
-            border-radius: 6px;
+            border-radius: 10px;
         }
         QLabel#sectionHeading {
             color: #172033;
@@ -653,12 +665,12 @@ void MainWindow::applyStyle()
             font-weight: 600;
         }
         QLabel#timeLabel, QLabel#systemTimeLabel {
-            color: #111827;
+            color: #005AAE;
             font-family: "Cascadia Mono", "Consolas", monospace;
-            font-size: 34px;
+            font-size: 36px;
             font-weight: 600;
         }
-        QLabel#systemTimeLabel { color: #344054; }
+        QLabel#systemTimeLabel { color: #475467; font-size: 32px; }
         QLabel#dateLabel {
             color: #344054;
             font-size: 14px;
@@ -694,7 +706,7 @@ void MainWindow::applyStyle()
             font-weight: 600;
         }
         QLabel#statusBadge[tone="neutral"] { color: #475467; background: #EEF1F4; }
-        QLabel#statusBadge[tone="info"] { color: #2457B8; background: #EAF1FF; }
+        QLabel#statusBadge[tone="info"] { color: #005AAE; background: #EAF4FC; }
         QLabel#statusBadge[tone="success"] { color: #176B43; background: #E8F6EE; }
         QLabel#statusBadge[tone="warning"] { color: #8A4B08; background: #FFF2D8; }
         QLabel#statusBadge[tone="error"] { color: #A61B12; background: #FDEBEA; }
@@ -712,11 +724,11 @@ void MainWindow::applyStyle()
         }
         QPushButton#primaryButton {
             color: #FFFFFF;
-            background: #2F6FED;
-            border: 1px solid #2F6FED;
+            background: #005AAE;
+            border: 1px solid #005AAE;
         }
-        QPushButton#primaryButton:hover { background: #245DCE; border-color: #245DCE; }
-        QPushButton#primaryButton:pressed { background: #1D4FAF; border-color: #1D4FAF; }
+        QPushButton#primaryButton:hover { background: #004E98; border-color: #004E98; }
+        QPushButton#primaryButton:pressed { background: #003F7A; border-color: #003F7A; }
         QPushButton#secondaryButton, QToolButton#iconButton {
             color: #344054;
             background: #FFFFFF;
@@ -736,7 +748,8 @@ void MainWindow::applyStyle()
             border: 0;
         }
         QPushButton#bannerDismissButton:hover { background: rgba(23, 32, 51, 0.08); }
-        QPushButton#bannerDismissButton:focus { border: 2px solid #2F6FED; }
+        QPushButton#bannerDismissButton:focus { border: 2px solid #005AAE; }
+        QPushButton#bannerDismissButton { font-size: 18px; color: #667085; }
         QPushButton:disabled, QToolButton:disabled {
             color: #98A2B3;
             background: #EEF1F4;
@@ -744,14 +757,14 @@ void MainWindow::applyStyle()
         }
         QPushButton:focus, QToolButton:focus, QComboBox:focus, QSpinBox:focus,
         QLineEdit:focus, QListWidget:focus {
-            border: 2px solid #2F6FED;
+            border: 2px solid #005AAE;
         }
         QLineEdit, QSpinBox, QComboBox, QListWidget {
             color: #172033;
             background: #FFFFFF;
             border: 1px solid #C9D1DB;
             border-radius: 6px;
-            selection-background-color: #DCE8FF;
+            selection-background-color: #D6E8F8;
             selection-color: #172033;
         }
         QLineEdit, QSpinBox, QComboBox { padding: 0 10px; }
@@ -763,17 +776,34 @@ void MainWindow::applyStyle()
             padding: 2px 8px;
             border-radius: 4px;
         }
-        QListWidget::item:selected { background: #DCE8FF; color: #172033; }
+        QListWidget::item:selected { background: #D6E8F8; color: #172033; }
         QCheckBox { spacing: 8px; }
         QCheckBox::indicator { width: 18px; height: 18px; }
-        QCheckBox:focus { color: #1F56C2; }
+        QCheckBox:focus { color: #005AAE; }
         QLabel#validationLabel { color: transparent; font-size: 13px; }
         QLabel#validationLabel[visibleError="true"] { color: #B42318; }
         QFrame#divider { color: #DDE2E8; }
-        QDialog#serverEditorDialog { background: #FFFFFF; }
+        QDialog#serverEditorDialog, QDialog#aboutDialog { background: #FFFFFF; }
+        QLabel#aboutStudio {
+            color: #172033;
+            font-size: 18px;
+            font-weight: 600;
+        }
+        QLabel#aboutCaption {
+            color: #667085;
+            font-size: 13px;
+            font-weight: 500;
+        }
+        QLabel#aboutLink { font-size: 14px; font-weight: 600; }
+        QLabel#aboutLink a { color: #005AAE; text-decoration: none; }
+        QFrame#aboutLinksFrame {
+            background: #F3F7FB;
+            border: 1px solid #D7E2EE;
+            border-radius: 10px;
+        }
         QScrollBar:vertical {
             width: 12px;
-            background: #F4F6F8;
+            background: #F3F6FA;
             margin: 0;
         }
         QScrollBar::handle:vertical {
@@ -790,6 +820,8 @@ void MainWindow::retranslateUi()
 {
     setWindowTitle(UiStrings::text(QStringLiteral("app.windowTitle")));
     appTitleLabel_->setText(UiStrings::text(QStringLiteral("app.title")));
+    logoLabel_->setAccessibleName(UiStrings::text(QStringLiteral("about.logoAlt")));
+    aboutButton_->setText(UiStrings::text(QStringLiteral("action.about")));
     languageLabel_->setText(UiStrings::text(QStringLiteral("language.label")));
 
     {
@@ -819,6 +851,9 @@ void MainWindow::retranslateUi()
     serverList_->setAccessibleName(UiStrings::text(QStringLiteral("servers.heading")));
     editServersButton_->setText(UiStrings::text(QStringLiteral("action.editServers")));
 
+    if (aboutDialog_ != nullptr) {
+        aboutDialog_->retranslateUi();
+    }
     if (serverEditor_ != nullptr) {
         serverEditor_->retranslateUi();
         if (!busyState_.savingServers && hasOperationResult_ && !lastOperationResult_.success
@@ -1060,6 +1095,28 @@ void MainWindow::updateResponsiveLayout()
     clockGrid_->setProperty("stacked", clocksStacked);
     lowerGrid_->setProperty("compact", compact);
     lowerGrid_->setProperty("initialized", true);
+}
+
+void MainWindow::applyHeaderLogo()
+{
+    const QPixmap logo = brandLogoPixmap(44);
+    logoLabel_->setPixmap(logo);
+    if (logo.isNull()) {
+        logoLabel_->hide();
+        return;
+    }
+    logoLabel_->setFixedSize(logo.deviceIndependentSize().toSize());
+    logoLabel_->show();
+}
+
+void MainWindow::showAboutDialog()
+{
+    if (aboutDialog_ == nullptr) {
+        aboutDialog_ = new AboutDialog(this);
+    } else {
+        aboutDialog_->retranslateUi();
+    }
+    aboutDialog_->exec();
 }
 
 void MainWindow::showServerEditor()

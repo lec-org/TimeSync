@@ -64,11 +64,14 @@ if(WIN32)
 endif()
 
 set(TIMESYNC_UI_SOURCES
+    src/ui/about_dialog.cpp
     src/ui/main_window.cpp
     src/ui/server_editor_dialog.cpp
     src/ui/ui_strings.cpp
 )
 set(TIMESYNC_UI_HEADERS
+    src/ui/about_dialog.h
+    src/ui/brand_assets.h
     src/ui/main_window.h
     src/ui/server_editor_dialog.h
     src/ui/ui_strings.h
@@ -91,7 +94,7 @@ if(WIN32)
     set_source_files_properties(
         "${CMAKE_CURRENT_SOURCE_DIR}/resources/timesync_manifest.rc"
         PROPERTIES
-        OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/resources/TimeSync.manifest"
+        OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/resources/TimeSync.manifest;${CMAKE_CURRENT_SOURCE_DIR}/resources/branding/timesync.ico"
     )
     target_sources(TimeSync PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/resources/timesync_manifest.rc")
 endif()

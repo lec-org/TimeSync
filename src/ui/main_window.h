@@ -20,6 +20,7 @@ class QTimer;
 
 namespace TimeSync::Ui {
 
+class AboutDialog;
 class ServerEditorDialog;
 
 class MainWindow final : public QMainWindow {
@@ -62,6 +63,8 @@ private:
     void updateServerDisplay();
     void updateResponsiveLayout();
     void showServerEditor();
+    void showAboutDialog();
+    void applyHeaderLogo();
     void showOperationBanner(const OperationResult &result);
     QString operationMessage(const OperationResult &result) const;
     QString referenceDetail() const;
@@ -75,7 +78,9 @@ private:
     void setTone(QWidget *widget, const QString &tone);
 
     QFrame *headerFrame_ = nullptr;
+    QLabel *logoLabel_ = nullptr;
     QLabel *appTitleLabel_ = nullptr;
+    QPushButton *aboutButton_ = nullptr;
     QLabel *languageLabel_ = nullptr;
     QComboBox *languageCombo_ = nullptr;
 
@@ -141,6 +146,7 @@ private:
     OperationResult lastOperationResult_;
     bool hasOperationResult_ = false;
     ServerEditorDialog *serverEditor_ = nullptr;
+    AboutDialog *aboutDialog_ = nullptr;
 };
 
 } // namespace TimeSync::Ui

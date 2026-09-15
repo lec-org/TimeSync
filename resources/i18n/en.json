@@ -40,6 +40,8 @@
   "age.hours": "%1 hr %2 min ago",
   "age.days": "%1 d %2 hr ago",
 
+  "action.about": "About",
+  "action.close": "Close",
   "action.refresh": "Refresh",
   "action.syncNow": "Sync system time now",
   "action.apply": "Apply",
@@ -50,6 +52,12 @@
   "action.cancel": "Cancel",
   "action.save": "Save",
   "action.dismiss": "Dismiss message",
+
+  "about.title": "About",
+  "about.studio": "LEC Software Studio",
+  "about.website": "Website",
+  "about.github": "GitHub",
+  "about.logoAlt": "LEC Software Studio logo",
 
   "busy.refreshing": "Refreshing…",
   "busy.syncing": "Syncing…",

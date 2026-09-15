@@ -8,6 +8,7 @@
 #ifdef TIMESYNC_HAS_UI
 #    include "../ui/main_window.h"
 #    include <QApplication>
+#    include <QIcon>
 #else
 #    include <QCoreApplication>
 #endif
@@ -16,6 +17,7 @@ int main(int argc, char *argv[])
 {
 #ifdef TIMESYNC_HAS_UI
     QApplication application(argc, argv);
+    application.setWindowIcon(QIcon(QStringLiteral(":/branding/lec-logo.png")));
 #else
     QCoreApplication application(argc, argv);
 #endif

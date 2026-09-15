@@ -40,6 +40,8 @@
   "age.hours": "%1 小时 %2 分钟前",
   "age.days": "%1 天 %2 小时前",
 
+  "action.about": "关于",
+  "action.close": "关闭",
   "action.refresh": "刷新",
   "action.syncNow": "立即同步系统时间",
   "action.apply": "应用",
@@ -50,6 +52,12 @@
   "action.cancel": "取消",
   "action.save": "保存",
   "action.dismiss": "关闭消息",
+
+  "about.title": "关于",
+  "about.studio": "乐程软件工作室",
+  "about.website": "乐程官网",
+  "about.github": "乐程 GitHub",
+  "about.logoAlt": "乐程软件工作室标志",
 
   "busy.refreshing": "正在刷新…",
   "busy.syncing": "正在同步…",

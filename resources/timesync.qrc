@@ -3,4 +3,7 @@
         <file alias="zh-CN.json">i18n/zh-CN.json</file>
         <file alias="en.json">i18n/en.json</file>
     </qresource>
+    <qresource prefix="/branding">
+        <file alias="lec-logo.png">branding/lec-logo.png</file>
+    </qresource>
 </RCC>
