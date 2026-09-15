@@ -1,62 +1,57 @@
 # TimeSync
 
-TimeSync is a small Windows desktop utility for checking and synchronizing the
-computer clock against verified NTP time sources.
+<img src="resources/branding/lec-logo.png" alt="LEC Software Studio logo" width="128">
 
-It shows Beijing time beside the current Windows system time, reports the
-difference between them, and can keep the clock synchronized on a schedule.
+English | [简体中文](README.zh-CN.md)
 
-## Features
+TimeSync is a Windows desktop app that shows Beijing Standard Time (UTC+08:00) beside the Windows clock and sets the system time immediately or on a schedule.
 
-- Verified NTP time from configurable sources
-- Beijing time and Windows system time shown together
-- Manual system-time synchronization
-- Optional recurring Task Scheduler synchronization
-- IPv4 and IPv6 support
-- Chinese and English interface
-- Shared-runtime portable build and self-contained static build
+![Standard Time Sync English interface showing Beijing Standard Time, Windows system time, their difference, schedule controls, and time servers](docs/screenshot.jpg)
 
-## Install
+Version **1.0.0** · Published by **LEC Software Studio / 乐程软件工作室**
 
-1. Extract the release package to a folder that normal users cannot modify.
-2. Start `TimeSync.exe`.
-3. Approve the Windows administrator prompt.
+## Run on Windows
 
-TimeSync requests administrator permission when it starts because changing the
-Windows clock and managing a scheduled task require elevated access. Installing
-it in a protected folder also prevents a user-writable copy of the executable
-from being used for privileged work.
+Choose the package you received:
 
-> [!NOTE]
-> Windows Defender or another security product may ask for confirmation when a
-> new unsigned executable is first launched.
-
-## Release packages
-
-| Package | Use |
+| Package | How to launch |
 | --- | --- |
-| `TimeSync-portable.zip` | Application folder with Qt runtime files |
-| `TimeSync-static.exe` | Single executable with Qt and MinGW runtime linked in |
+| `TimeSync-portable.zip` | Extract the entire application folder, keeping its Qt runtime files together, then open `TimeSync.exe`. |
+| `TimeSync-static.exe` | Place the single executable in your application folder and open it. |
 
-The static executable still uses normal Windows system libraries. Both packages
-need network access to UDP port `123` for NTP.
+Use a folder protected from modification by unprivileged users: the executable runs with elevated permissions, including during scheduled synchronization.
 
-## Use the application
+Accept the Windows User Account Control (UAC) prompt at startup. Administrator access is required to adjust the system clock and manage the scheduled task.
 
-- **Refresh** obtains a new NTP sample without changing the system clock.
-- **Synchronize** obtains a fresh sample and sets the Windows system clock.
-- **Edit servers** changes the NTP source order. A hostname, IPv4 address, or
-  bracketed IPv6 address may be used; an optional port is supported.
-- **Automatic time sync** creates or updates a recurring scheduled task.
+Allow outbound **UDP port 123** for NTP queries. TimeSync supports both IPv4 and IPv6 time servers.
 
-The application keeps displaying the last verified reference time using a
-monotonic timer while a refresh is not available. It does not treat the local
-system clock as an authoritative time source.
+The initial interface language is Simplified Chinese. Use the **界面语言 / Language** selector to choose **English** or **简体中文**. The window is titled **Standard Time Sync** in English and **标准时间同步** in Chinese.
 
-## Configuration
+## Check and synchronize the clock
 
-The default configuration is `config.ini` beside `TimeSync.exe`. It contains
-exactly three fields:
+1. Read the Beijing Standard Time and Windows system time panels, with the clock difference displayed below them.
+2. Select **Refresh** to request a new NTP sample while leaving the Windows clock unchanged.
+3. Select **Sync system time now** to set the Windows clock using the verified standard time. TimeSync uses the current sample while it remains valid; otherwise, it queries NTP before setting the clock.
+
+Open **Edit servers** to change the time sources and save the list. The defaults contain **25 servers** from Aliyun, NIM, and CERNET.
+
+NTP over UDP provides no cryptographic assurance of a server's authenticity. Sample verification includes origin-timestamp checks that associate replies with requests.
+
+## Set up automatic synchronization
+
+1. In **Automatic time sync**, select **Enable automatic time sync**.
+2. Enter a **Sync interval** between **1 and 10080 minutes**; the default is **60 minutes**.
+3. Select **Apply** to create or update the Windows Task Scheduler task, then check **Schedule status**.
+
+To delete the task, select **Remove schedule** and confirm removal.
+
+The task launches the same TimeSync executable used to configure it, under the current administrative user with highest privileges. Keep that executable in its installed folder so the task can continue to launch it.
+
+## Settings file
+
+Use the GUI to change servers, scheduling, and language. Settings are stored in `config.ini` alongside the executable.
+
+The file format is UTF-8 with exactly three fields, one per line, without comments or section headers. This example uses three sample servers:
 
 ```ini
 servers = ntp1.aliyun.com, ntp2.aliyun.com, ntp1.nim.ac.cn
@@ -64,10 +59,17 @@ scheduleIntervalMinutes = 60
 language = zh-CN
 ```
 
-The GUI is the recommended way to edit this file. Existing invalid files are
-never silently overwritten.
+| Field | Accepted value |
+| --- | --- |
+| `servers` | Comma-separated NTP server list, managed through **Edit servers**. |
+| `scheduleIntervalMinutes` | Integer from `1` to `10080`, in minutes; defaults to `60`. |
+| `language` | `zh-CN` for Simplified Chinese (default) or `en-US` for English. |
 
-## Command line
+If `config.ini` is invalid, TimeSync keeps the file and reports an error. Edit it to match the format above, then retry.
+
+## Command-line use
+
+Run these commands from the application folder; brackets indicate optional arguments:
 
 ```text
 TimeSync.exe
@@ -77,56 +79,55 @@ TimeSync.exe --remove-task [--config <path>]
 TimeSync.exe --help
 ```
 
-`--dry-run` obtains and prints an NTP sample without changing the system clock.
-The command-line modes also request administrator permission through the
-application manifest.
+- Launching without arguments opens the GUI.
+- `--sync-once` performs one synchronization; adding `--dry-run` fetches and prints an NTP sample while leaving the system clock unchanged.
+- `--install-task` creates or updates the scheduled task using the configured interval.
+- `--remove-task` deletes the scheduled task.
+- `--config <path>` selects a configuration file for the operation.
+- `--help` displays usage information.
 
-## Build from source
+## Compile and package
 
-Requirements:
+Build requirements: **Windows x64**, **Qt 6.9.1 MinGW 64-bit** with Core, Network, and Widgets, **MinGW-w64** with **C++20** support, **CMake 3.22+**, and **Ninja**.
 
-- Windows x64
-- Qt 6.9.1 MinGW 64-bit
-- MinGW-w64 13.1
-- CMake 3.22 or newer
-- Ninja
+Run the commands from the source directory, replacing the angle-bracket placeholders with your Qt prefix and tool paths. The examples use shell-style `\` line continuation; in PowerShell or Command Prompt, join each continued command onto one line and remove the trailing `\` characters. Quote paths containing spaces.
 
-With Qt, CMake, Ninja, and MinGW available on `PATH`, configure and build the
-shared-Qt version:
+### Shared Qt application folder
 
 ```sh
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_PREFIX_PATH=<shared-Qt-prefix> \
   -DCMAKE_CXX_COMPILER=<path-to-g++.exe> \
   -DCMAKE_MAKE_PROGRAM=<path-to-ninja.exe>
-cmake --build build --parallel 4
+cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 cmake --build build --target deploy-portable
 ```
 
-To build the single-executable variant, configure the project with a separately
-compiled static Qt 6.9.1 `qtbase` installation:
+When TimeSync is built against shared Qt, `deploy-portable` copies `TimeSync.exe` and the Qt runtime into `build/deploy`.
+
+### Static single executable
+
+Use a separately built static Qt 6.9.1 `qtbase` installation containing the Windows platform plugin (`QWindowsIntegrationPlugin`) and Schannel TLS plugin (`QSchannelBackendPlugin`).
 
 ```sh
 cmake -S . -B build-static -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_PREFIX_PATH=<static-Qt-prefix> \
   -DCMAKE_CXX_COMPILER=<path-to-g++.exe> \
   -DCMAKE_MAKE_PROGRAM=<path-to-ninja.exe>
-cmake --build build-static --parallel 4
+cmake --build build-static --parallel
 ```
 
-The static Qt build must include the Windows platform plugin. Schannel is used
-for Qt's TLS support; OpenSSL is not required by TimeSync's NTP workflow.
+## Resolve common problems
 
-## Troubleshooting
+| Problem | Action |
+| --- | --- |
+| All time sources fail to respond | Check outbound UDP port `123` access and review the configured servers in **Edit servers**. |
+| Windows refuses a clock adjustment | Reopen the application and accept UAC. Ask an administrator to check the **Change the system time** user right in Local Security Policy. |
+| Scheduled synchronization fails | Launch the application from its installed folder with administrator privileges and apply the schedule again. |
 
-- If no time source responds, allow outbound UDP `123` and check the server
-  list.
-- If Windows rejects the clock change, confirm that the administrator prompt
-  was accepted and that local policy allows changing system time.
-- If a scheduled task cannot be created, run the application from its protected
-  installation folder and try again.
+## Publisher and license
 
-NTP is a plain UDP protocol. Origin-timestamp and packet validation protect
-against malformed or unrelated replies, but NTP itself does not provide
-cryptographic authenticity.
+The **About** dialog identifies LEC Software Studio (乐程软件工作室) and links to the [studio website](https://lec-page-2026.ziroo.cn/) and [GitHub organization](https://github.com/lec-org).
+
+TimeSync is licensed under the [GNU Affero General Public License v3.0](LICENSE).
