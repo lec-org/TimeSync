@@ -25,3 +25,4 @@ deploy/
 
 .agent-context/
 .cortexkit/
+.slim/
