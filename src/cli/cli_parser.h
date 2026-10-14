@@ -17,16 +17,25 @@ enum class CommandMode {
     ElevatedInstallTask,
     ElevatedRemoveTask,
     ElevatedSetTaskEnabled,
+    InstallStartupTask,
+    RemoveStartupTask,
 };
 
 struct ParsedCommand {
     CommandMode mode = CommandMode::Gui;
     bool dryRun = false;
     bool scheduled = false;
+    bool startup = false;
     QString configPath;
     QString resultPath;
     QString nonce;
     bool taskEnabled = false;
+
+    // Scheduled commands are rejected before elevation; GUI relaunch remains asynchronous.
+    [[nodiscard]] bool requiresSynchronousElevation() const noexcept
+    {
+        return mode != CommandMode::Gui && mode != CommandMode::Help && !scheduled;
+    }
 };
 
 class CliParser final {

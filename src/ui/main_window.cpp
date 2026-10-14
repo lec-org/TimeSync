@@ -89,6 +89,7 @@ MainWindow::MainWindow(QWidget *parent)
     qRegisterMetaType<BusyState>();
     qRegisterMetaType<ScheduleState>();
     qRegisterMetaType<OperationResult>();
+    qRegisterMetaType<StartupSyncState>();
 
     setMinimumSize(600, 440);
     resize(820, 600);
@@ -98,6 +99,7 @@ MainWindow::MainWindow(QWidget *parent)
     retranslateUi();
     updateReferenceDisplay();
     updateScheduleDisplay();
+    updateStartupSyncDisplay();
     updateServerDisplay();
     updateBusyDisplay();
     updateResponsiveLayout();
@@ -182,6 +184,15 @@ void MainWindow::setServerList(const QStringList &servers)
     updateServerDisplay();
 }
 
+void MainWindow::setStartupSyncState(const StartupSyncState &state)
+{
+    startupSyncState_ = state;
+    const QSignalBlocker blocker(startupSyncCheck_);
+    startupSyncCheck_->setChecked(state.enabled);
+    updateStartupSyncDisplay();
+    updateBusyDisplay();
+}
+
 void MainWindow::setDefaultServerList(const QStringList &servers)
 {
     if (!servers.isEmpty()) {
@@ -218,6 +229,9 @@ void MainWindow::setOperationResult(const OperationResult &result)
         break;
     case OperationKind::RemoveSchedule:
         busyState_.removingSchedule = false;
+        break;
+    case OperationKind::ChangeStartupSync:
+        busyState_.changingStartupSync = false;
         break;
     }
 
@@ -508,6 +522,28 @@ void MainWindow::buildUi()
     scheduleButtons->addWidget(applyScheduleButton_);
     scheduleLayout->addLayout(scheduleButtons, 5, 0, 1, 2);
 
+    // Keep the immediate, independent login setting outside the periodic Apply row.
+    auto *startupDivider = new QFrame(schedulePanel_);
+    startupDivider->setObjectName(QStringLiteral("divider"));
+    startupDivider->setFrameShape(QFrame::HLine);
+    scheduleLayout->addWidget(startupDivider, 6, 0, 1, 2);
+    startupSyncCheck_ = new QCheckBox(schedulePanel_);
+    startupSyncCheck_->setObjectName(QStringLiteral("startupSyncCheck"));
+    startupSyncCheck_->setMinimumHeight(40);
+    startupSyncCheck_->setChecked(false);
+    startupSyncCheck_->setEnabled(false);
+    startupSyncDescriptionLabel_ = new QLabel(schedulePanel_);
+    startupSyncDescriptionLabel_->setObjectName(QStringLiteral("secondaryText"));
+    startupSyncDescriptionLabel_->setWordWrap(true);
+    startupSyncDescriptionLabel_->setMinimumWidth(0);
+    startupSyncStatusLabel_ = new QLabel(schedulePanel_);
+    startupSyncStatusLabel_->setObjectName(QStringLiteral("startupSyncStatus"));
+    startupSyncStatusLabel_->setWordWrap(true);
+    startupSyncStatusLabel_->setMinimumWidth(0);
+    scheduleLayout->addWidget(startupSyncCheck_, 7, 0, 1, 2);
+    scheduleLayout->addWidget(startupSyncDescriptionLabel_, 8, 0, 1, 2);
+    scheduleLayout->addWidget(startupSyncStatusLabel_, 9, 0, 1, 2);
+
     serversPanel_ = new QFrame(contentWidget_);
     serversPanel_->setObjectName(QStringLiteral("surfacePanel"));
     auto *serversLayout = new QVBoxLayout(serversPanel_);
@@ -615,6 +651,21 @@ void MainWindow::buildUi()
         emit scheduleRemoveRequested();
     });
     connect(editServersButton_, &QPushButton::clicked, this, &MainWindow::showServerEditor);
+    connect(startupSyncCheck_, &QCheckBox::clicked, this, [this](bool enabled) {
+        if (!startupSyncState_.known || busyState_.changingStartupSync) {
+            const QSignalBlocker blocker(startupSyncCheck_);
+            startupSyncCheck_->setChecked(startupSyncState_.enabled);
+            return;
+        }
+        hasOperationResult_ = false;
+        operationBanner_->hide();
+        busyState_.changingStartupSync = true;
+        startupSyncState_.status = StartupSyncStatus::Updating;
+        startupSyncState_.updateFailed = false;
+        updateStartupSyncDisplay();
+        updateBusyDisplay();
+        emit startupSyncChangeRequested(enabled);
+    });
     connect(aboutButton_, &QPushButton::clicked, this, &MainWindow::showAboutDialog);
 
     QWidget::setTabOrder(aboutButton_, languageCombo_);
@@ -624,7 +675,8 @@ void MainWindow::buildUi()
     QWidget::setTabOrder(scheduleEnabledCheck_, intervalSpinBox_);
     QWidget::setTabOrder(intervalSpinBox_, removeScheduleButton_);
     QWidget::setTabOrder(removeScheduleButton_, applyScheduleButton_);
-    QWidget::setTabOrder(applyScheduleButton_, serverList_);
+    QWidget::setTabOrder(applyScheduleButton_, startupSyncCheck_);
+    QWidget::setTabOrder(startupSyncCheck_, serverList_);
     QWidget::setTabOrder(serverList_, editServersButton_);
 }
 
@@ -705,6 +757,8 @@ void MainWindow::applyStyle()
             color: #344054;
             font-weight: 600;
         }
+        QLabel#startupSyncStatus { color: #344054; font-size: 13px; }
+        QLabel#startupSyncStatus[tone="error"] { color: #A61B12; }
         QLabel#statusBadge {
             padding: 4px 10px;
             border-radius: 6px;
@@ -792,6 +846,7 @@ void MainWindow::applyStyle()
         QCheckBox { spacing: 8px; }
         QCheckBox::indicator { width: 18px; height: 18px; }
         QCheckBox:focus { color: #005AAE; }
+        QCheckBox#startupSyncCheck:disabled { color: #98A2B3; }
         QLabel#validationLabel { color: transparent; font-size: 13px; }
         QLabel#validationLabel[visibleError="true"] { color: #B42318; }
         QFrame#divider { color: #DDE2E8; }
@@ -859,6 +914,10 @@ void MainWindow::retranslateUi()
     intervalLabel_->setText(UiStrings::text(QStringLiteral("schedule.interval")));
     intervalSpinBox_->setSuffix(UiStrings::text(QStringLiteral("schedule.minutesSuffix")));
     scheduleStatusCaptionLabel_->setText(UiStrings::text(QStringLiteral("schedule.status")));
+    startupSyncCheck_->setText(UiStrings::text(QStringLiteral("startupSync.enabled")));
+    const QString startupDescription = UiStrings::text(QStringLiteral("startupSync.description"));
+    startupSyncDescriptionLabel_->setText(startupDescription);
+    startupSyncCheck_->setAccessibleDescription(startupDescription);
     serversHeadingLabel_->setText(UiStrings::text(QStringLiteral("servers.heading")));
     serverList_->setAccessibleName(UiStrings::text(QStringLiteral("servers.heading")));
     editServersButton_->setText(UiStrings::text(QStringLiteral("action.editServers")));
@@ -878,6 +937,7 @@ void MainWindow::retranslateUi()
     }
     updateReferenceDisplay();
     updateScheduleDisplay();
+    updateStartupSyncDisplay();
     updateServerDisplay();
     updateBusyDisplay();
 }
@@ -1028,11 +1088,47 @@ void MainWindow::updateBusyDisplay()
     intervalSpinBox_->setEnabled(!scheduleBusy && scheduleEnabledCheck_->isChecked());
     applyScheduleButton_->setEnabled(!scheduleBusy);
     removeScheduleButton_->setEnabled(scheduleState_.exists && !scheduleBusy);
+    startupSyncCheck_->setEnabled(startupSyncState_.known
+                                 && !busyState_.changingStartupSync
+                                 && startupSyncState_.status != StartupSyncStatus::Updating);
 }
 
 void MainWindow::updateScheduleDisplay()
 {
     scheduleStatusValueLabel_->setText(scheduleStatusText());
+}
+
+void MainWindow::updateStartupSyncDisplay()
+{
+    QString key;
+    switch (startupSyncState_.status) {
+    case StartupSyncStatus::Checking:
+        key = QStringLiteral("startupSync.state.checking");
+        break;
+    case StartupSyncStatus::Disabled:
+        key = QStringLiteral("startupSync.state.disabled");
+        break;
+    case StartupSyncStatus::Enabled:
+        key = QStringLiteral("startupSync.state.enabled");
+        break;
+    case StartupSyncStatus::Updating:
+        key = QStringLiteral("startupSync.state.updating");
+        break;
+    case StartupSyncStatus::Error:
+        key = QStringLiteral("startupSync.state.error");
+        break;
+    }
+    if (startupSyncState_.updateFailed && startupSyncState_.known) {
+        key = QStringLiteral("startupSync.state.updateFailed");
+    }
+    const QString status = UiStrings::text(key);
+    startupSyncStatusLabel_->setText(status);
+    startupSyncStatusLabel_->setAccessibleName(status);
+    setTone(startupSyncStatusLabel_, startupSyncState_.status == StartupSyncStatus::Error
+                || startupSyncState_.updateFailed ? QStringLiteral("error") : QStringLiteral("neutral"));
+    startupSyncCheck_->setAccessibleDescription(
+        UiStrings::text(QStringLiteral("startupSync.description")) + QLatin1Char(' ') + status);
+    startupSyncCheck_->setToolTip(status);
 }
 
 void MainWindow::updateServerDisplay()
@@ -1189,6 +1285,7 @@ bool MainWindow::shouldShowOperationBanner(const OperationResult &result) const
     case OperationKind::ManualSync:
     case OperationKind::ChangeSchedule:
     case OperationKind::RemoveSchedule:
+    case OperationKind::ChangeStartupSync:
         return true;
     case OperationKind::Refresh:
     case OperationKind::SaveServers:
@@ -1211,9 +1308,16 @@ QString MainWindow::operationMessage(const OperationResult &result) const
             return UiStrings::text(QStringLiteral("operation.schedule.success"));
         case OperationKind::RemoveSchedule:
             return UiStrings::text(QStringLiteral("operation.removeSchedule.success"));
+        case OperationKind::ChangeStartupSync:
+            return UiStrings::text(QStringLiteral("startupSync.operation.success"));
         }
     }
 
+    if (result.operation == OperationKind::ChangeStartupSync) {
+        return UiStrings::text(result.failure == OperationFailure::UncertainState
+                                   ? QStringLiteral("startupSync.state.error")
+                                   : QStringLiteral("startupSync.operation.failure"));
+    }
     switch (result.failure) {
     case OperationFailure::RemoteTimeUnavailable:
         return UiStrings::text(QStringLiteral("operation.failure.remoteTime"));
@@ -1243,6 +1347,8 @@ QString MainWindow::operationMessage(const OperationResult &result) const
         return UiStrings::text(QStringLiteral("operation.failure.scheduleUpdate"));
     case OperationFailure::ScheduleRemoveFailed:
         return UiStrings::text(QStringLiteral("operation.failure.scheduleRemove"));
+    case OperationFailure::StartupSyncUpdateFailed:
+        return UiStrings::text(QStringLiteral("startupSync.operation.failure"));
     case OperationFailure::None:
     case OperationFailure::Unknown:
         break;
@@ -1259,6 +1365,8 @@ QString MainWindow::operationMessage(const OperationResult &result) const
         return UiStrings::text(QStringLiteral("operation.schedule.failure"));
     case OperationKind::RemoveSchedule:
         return UiStrings::text(QStringLiteral("operation.removeSchedule.failure"));
+    case OperationKind::ChangeStartupSync:
+        return UiStrings::text(QStringLiteral("startupSync.operation.failure"));
     }
     return UiStrings::text(QStringLiteral("operation.failure.unknown"));
 }

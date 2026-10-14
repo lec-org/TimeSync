@@ -6,6 +6,7 @@
 
 #include <QCoreApplication>
 #include <QEventLoop>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QTimer>
@@ -113,7 +114,16 @@ ErrorCode CliRunner::errorCodeForSystemFailure(const SystemTimeFailure failure)
     return ErrorCode::InternalError;
 }
 
-Result<NtpSample> CliRunner::acquireFresh(const AppConfig &config) const
+bool CliRunner::shouldRetryStartupAcquisition(const ErrorCode error, const qint64 elapsedMs,
+                                               const int attempts)
+{
+    const bool transient = error == ErrorCode::NetworkUnavailable || error == ErrorCode::SourceTimeout
+        || error == ErrorCode::NoValidSource;
+    return transient && attempts > 0 && attempts < StartupMaximumAttempts && elapsedMs >= 0
+        && elapsedMs < StartupAcquisitionBudgetMs - StartupRetryDelayMs - 2000;
+}
+
+Result<NtpSample> CliRunner::acquireFresh(const AppConfig &config, const int timeoutMs) const
 {
     Error endpointError;
     const QList<ServerEndpoint> endpoints = endpointsFor(config, &endpointError);
@@ -127,7 +137,7 @@ Result<NtpSample> CliRunner::acquireFresh(const AppConfig &config) const
     NtpClient client;
     NtpQueryOptions options;
     options.perSourceTimeoutMs = 1200;
-    options.globalTimeoutMs = 5000;
+    options.globalTimeoutMs = timeoutMs;
     const Result<quint64> started = client.start(endpoints, options);
     if (!started) {
         return Result<NtpSample>::failure(started.error());
@@ -143,7 +153,10 @@ Result<NtpSample> CliRunner::acquireFresh(const AppConfig &config) const
         queryResult = result;
         loop.quit();
     });
-    QObject::connect(&watchdog, &QTimer::timeout, &loop, [&] { client.cancel(); });
+    QObject::connect(&watchdog, &QTimer::timeout, &loop, [&] {
+        client.cancel();
+        loop.quit();
+    });
     watchdog.start(options.globalTimeoutMs + 2000);
     loop.exec();
     if (!completed) {
@@ -186,7 +199,24 @@ ExitCode CliRunner::runSync(const ParsedCommand &command,
                             QTextStream &out,
                             QTextStream &err) const
 {
-    const Result<NtpSample> acquired = acquireFresh(config);
+    QElapsedTimer elapsed;
+    elapsed.start();
+    Result<NtpSample> acquired = acquireFresh(config);
+    int attempts = 1;
+    // Retry acquisition only. Once a sample is obtained, the single write below is never retried,
+    // even if Windows reports a failed or uncertain write/verification result.
+    while (command.startup && !acquired
+           && shouldRetryStartupAcquisition(acquired.error().code, elapsed.elapsed(), attempts)) {
+        QEventLoop pause;
+        QTimer::singleShot(StartupRetryDelayMs, &pause, &QEventLoop::quit);
+        pause.exec();
+        const qint64 remaining = StartupAcquisitionBudgetMs - elapsed.elapsed() - 2000;
+        if (remaining <= 0) {
+            break;
+        }
+        acquired = acquireFresh(config, static_cast<int>(qMin(qint64(5000), remaining)));
+        ++attempts;
+    }
     if (!acquired) {
         err << "Time acquisition failed: " << acquired.error().detail << "\n";
         return exitCodeForError(acquired.error().code);
@@ -277,17 +307,37 @@ ExitCode CliRunner::runTaskMutation(const ParsedCommand &command,
                                     QTextStream &out) const
 {
     const bool install = command.mode == CommandMode::InstallTask
-        || command.mode == CommandMode::ElevatedInstallTask;
+        || command.mode == CommandMode::ElevatedInstallTask
+        || command.mode == CommandMode::InstallStartupTask;
     const bool remove = command.mode == CommandMode::RemoveTask
         || command.mode == CommandMode::ElevatedRemoveTask;
     ConfigRepository repository;
     ConfigLoadResult loaded;
-    if (install || command.mode == CommandMode::InstallTask) {
+    if (install) {
         const Result<ConfigLoadResult> config = repository.load(command.configPath);
         if (!config) {
             return exitCodeForError(config.error().code);
         }
         loaded = config.value();
+    }
+
+    if (command.mode == CommandMode::InstallStartupTask || command.mode == CommandMode::RemoveStartupTask) {
+        TaskSchedulerBackend backend(ScheduledTaskKind::Startup);
+        if (install) {
+            const Result<ScheduledTaskInfo> result = backend.install(
+                QFileInfo(executablePath).absoluteFilePath(), loaded.path, loaded.config.scheduleIntervalMinutes);
+            if (!result) {
+                return exitCodeForError(result.error().code);
+            }
+            out << "Startup task installed.\n";
+        } else {
+            const Result<void> result = backend.remove();
+            if (!result) {
+                return exitCodeForError(result.error().code);
+            }
+            out << "Startup task removed.\n";
+        }
+        return ExitCode::Success;
     }
 
     if (command.mode == CommandMode::ElevatedInstallTask
@@ -360,6 +410,13 @@ ExitCode CliRunner::run(const ParsedCommand &command,
         out << CliParser::helpText();
         return ExitCode::Success;
     }
+    if (command.scheduled) {
+        const Result<bool> elevated = ElevationBroker::isProcessElevated();
+        if (!elevated || !elevated.value()) {
+            err << "Scheduled synchronization requires an elevated task token.\n";
+            return elevated ? ExitCode::PermissionFailure : exitCodeForError(elevated.error().code);
+        }
+    }
     if (command.mode == CommandMode::ElevatedSync) {
         return runElevatedSync(command, executablePath, out);
     }
@@ -368,7 +425,8 @@ ExitCode CliRunner::run(const ParsedCommand &command,
         || command.mode == CommandMode::ElevatedSetTaskEnabled) {
         return runTaskMutation(command, executablePath, out);
     }
-    if (command.mode == CommandMode::InstallTask || command.mode == CommandMode::RemoveTask) {
+    if (command.mode == CommandMode::InstallTask || command.mode == CommandMode::RemoveTask
+        || command.mode == CommandMode::InstallStartupTask || command.mode == CommandMode::RemoveStartupTask) {
         return runTaskMutation(command, executablePath, out);
     }
 

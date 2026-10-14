@@ -122,6 +122,7 @@ void AppController::shutdown()
     taskStateKnown_ = false;
     pendingScheduleChange_ = false;
     pendingScheduleRemove_ = false;
+    taskJobs_.clear();
     for (const QString &path : pendingHandoffPaths_) {
         QFile::remove(path);
     }
@@ -161,6 +162,10 @@ void AppController::connectUi()
             this,
             &AppController::onScheduleRemoveRequested);
     connect(window_,
+            &Ui::MainWindow::startupSyncChangeRequested,
+            this,
+            &AppController::onStartupSyncChangeRequested);
+    connect(window_,
             &Ui::MainWindow::languageChangeRequested,
             this,
             &AppController::onLanguageChangeRequested);
@@ -177,6 +182,8 @@ void AppController::loadConfiguration()
         window_->setLanguage(QStringLiteral("zh-CN"));
         scheduleState_ = {};
         window_->setScheduleState(scheduleState_);
+        startupSyncState_.status = Ui::StartupSyncStatus::Error;
+        window_->setStartupSyncState(startupSyncState_);
         emitUiErrorOperation(Ui::OperationKind::Refresh, loaded.error());
         applyReferenceState();
         return;
@@ -188,6 +195,7 @@ void AppController::loadConfiguration()
     scheduleState_.intervalMinutes = config_.scheduleIntervalMinutes;
     initializeUiFromConfiguration();
     queryTaskState();
+    queryStartupSyncState();
     startInitialRefresh();
 }
 
@@ -356,7 +364,8 @@ void AppController::onClockTimer()
 void AppController::maybeStartPendingRefresh()
 {
     if (!refreshPending_ || shuttingDown_ || !configReady_ || referenceLoading_
-        || coordinator_.isBusy() || elevationActive_ || scheduleMutationActive_ || taskJobActive_) {
+        || coordinator_.isBusy() || elevationActive_ || scheduleMutationActive_ || taskJobActive_
+        || !taskJobs_.empty()) {
         return;
     }
     refreshPending_ = false;
@@ -478,6 +487,9 @@ Ui::OperationFailure AppController::mapErrorToUiFailure(const ErrorCode code,
         return Ui::OperationFailure::ScheduleAuthorizationDenied;
     case ErrorCode::SchedulerMutationFailed:
     case ErrorCode::TaskNotFound:
+        if (operation == Ui::OperationKind::ChangeStartupSync) {
+            return Ui::OperationFailure::StartupSyncUpdateFailed;
+        }
         return operation == Ui::OperationKind::RemoveSchedule
             ? Ui::OperationFailure::ScheduleRemoveFailed
             : Ui::OperationFailure::ScheduleUpdateFailed;
@@ -527,7 +539,7 @@ QString AppController::normalizeLanguageTag(const QString &tag)
 
 void AppController::queryTaskState()
 {
-    if (taskJobActive_ || elevationActive_ || shuttingDown_) {
+    if (shuttingDown_) {
         return;
     }
     taskStateKnown_ = false;
@@ -539,33 +551,126 @@ void AppController::queryTaskState()
 void AppController::startTaskJob(std::function<Result<ScheduledTaskInfo>()> operation,
                                  std::function<void(const Result<ScheduledTaskInfo> &)> completed)
 {
-    if (taskJobActive_ || elevationActive_ || shuttingDown_) {
+    if (shuttingDown_) {
         return;
     }
+    taskJobs_.push_back({std::move(operation), std::move(completed)});
+    runNextTaskJob();
+}
+
+void AppController::runNextTaskJob()
+{
+    // Do not overwrite backgroundThread_: shutdown must be able to join the only worker.
+    if (shuttingDown_ || taskJobActive_ || elevationActive_ || backgroundThread_ != nullptr
+        || taskJobs_.empty()) {
+        return;
+    }
+    TaskJob job = std::move(taskJobs_.front());
+    taskJobs_.pop_front();
     taskJobActive_ = true;
+    auto result = std::make_shared<Result<ScheduledTaskInfo>>(
+        Result<ScheduledTaskInfo>::failure({ErrorCode::InternalError, QStringLiteral("task query did not finish")}));
     QThread *thread = QThread::create(
-        [this, operation = std::move(operation), completed = std::move(completed)]() mutable {
-            const Result<ScheduledTaskInfo> result = operation();
-            QMetaObject::invokeMethod(
-                this,
-                [this, result, completed]() mutable {
-                    taskJobActive_ = false;
-                    if (!shuttingDown_) {
-                        completed(result);
-                        maybeStartPendingRefresh();
-                    }
-                },
-                Qt::QueuedConnection);
+        [operation = std::move(job.operation), result]() mutable {
+            *result = operation();
         });
     backgroundThread_ = thread;
     thread->setParent(this);
-    connect(thread, &QThread::finished, this, [this, thread] {
-        if (backgroundThread_ == thread) {
+    connect(thread, &QThread::finished, this,
+            [this, thread = QPointer<QThread>(thread), result, completed = std::move(job.completed)] {
+        if (thread.isNull() || shuttingDown_) {
+            return;
+        }
+        if (backgroundThread_ == thread.data()) {
             backgroundThread_ = nullptr;
         }
+        taskJobActive_ = false;
         thread->deleteLater();
+        completed(*result);
+        runNextTaskJob();
+        maybeStartPendingRefresh();
     });
     thread->start();
+}
+
+void AppController::queryStartupSyncState()
+{
+    startupSyncState_.known = false;
+    startupSyncState_.status = Ui::StartupSyncStatus::Checking;
+    window_->setStartupSyncState(startupSyncState_);
+    startTaskJob(
+        [] { return TaskSchedulerBackend(ScheduledTaskKind::Startup).query(); },
+        [this](const Result<ScheduledTaskInfo> &result) { applyStartupSyncState(result); });
+}
+
+void AppController::applyStartupSyncState(const Result<ScheduledTaskInfo> &result)
+{
+    startupSyncState_.known = result.hasValue();
+    if (!result) {
+        // Keep the last confirmed checkmark, but never present an unknown state as off.
+        startupSyncState_.status = Ui::StartupSyncStatus::Error;
+    } else {
+        startupSyncState_.exists = result.value().exists;
+        startupSyncState_.enabled = result.value().exists && result.value().enabled;
+        startupSyncState_.status = startupSyncState_.enabled ? Ui::StartupSyncStatus::Enabled
+                                                           : Ui::StartupSyncStatus::Disabled;
+    }
+    window_->setStartupSyncState(startupSyncState_);
+}
+
+void AppController::onStartupSyncChangeRequested(const bool enabled)
+{
+    if (shuttingDown_) {
+        return;
+    }
+    if (busyState_.changingStartupSync) {
+        return; // An in-flight change owns the busy state until its read-back finishes.
+    }
+    if (!configReady_ || !startupSyncState_.known) {
+        window_->setStartupSyncState(startupSyncState_);
+        emitUiOperation(Ui::OperationKind::ChangeStartupSync, false,
+                        Ui::OperationFailure::StartupSyncUpdateFailed);
+        return;
+    }
+    busyState_.changingStartupSync = true;
+    startupSyncState_.status = Ui::StartupSyncStatus::Updating;
+    startupSyncState_.updateFailed = false;
+    window_->setStartupSyncState(startupSyncState_);
+    window_->setBusyState(busyState_);
+    const QString executable = QFileInfo(QCoreApplication::applicationFilePath()).absoluteFilePath();
+    const QString configPath = QFileInfo(configPath_).absoluteFilePath();
+    auto mutationError = std::make_shared<Error>();
+    startTaskJob(
+        [enabled, executable, configPath, mutationError] {
+            TaskSchedulerBackend backend(ScheduledTaskKind::Startup);
+            // The main GUI is already elevated. This never launches another runas process.
+            if (enabled) {
+                const Result<ScheduledTaskInfo> changed = backend.install(executable, configPath, 0);
+                if (!changed) {
+                    *mutationError = changed.error();
+                }
+            } else {
+                const Result<void> changed = backend.remove();
+                if (!changed) {
+                    *mutationError = changed.error();
+                }
+            }
+            // Even after a failed mutation, read the OS state to restore the true checkmark.
+            return backend.query();
+        },
+        [this, enabled, mutationError](const Result<ScheduledTaskInfo> &result) {
+            const bool confirmed = result && (enabled
+                ? result.value().exists && result.value().enabled
+                : !result.value().exists);
+            const bool success = mutationError->code == ErrorCode::None && confirmed;
+            busyState_.changingStartupSync = false;
+            startupSyncState_.updateFailed = !success;
+            applyStartupSyncState(result);
+            window_->setBusyState(busyState_);
+            emitUiOperation(Ui::OperationKind::ChangeStartupSync, success,
+                            result ? Ui::OperationFailure::StartupSyncUpdateFailed
+                                   : Ui::OperationFailure::UncertainState);
+        });
 }
 
 void AppController::applyTaskState(const Result<ScheduledTaskInfo> &result)
@@ -619,9 +724,6 @@ void AppController::startElevation(const ElevatedPurpose purpose,
         return;
     }
     if (taskJobActive_ || (backgroundThread_ != nullptr && !elevationActive_)) {
-        if (pendingHandoffPaths_.contains(handoff.path)) {
-            return;
-        }
         pendingHandoffPaths_.insert(handoff.path);
         QTimer::singleShot(50, this, [this, purpose, arguments, handoff] {
             startElevation(purpose, arguments, handoff);
@@ -670,18 +772,25 @@ void AppController::startElevation(const ElevatedPurpose purpose,
         });
     backgroundThread_ = thread;
     thread->setParent(this);
-    connect(thread, &QThread::finished, this, [this, thread] {
-        if (backgroundThread_ == thread) {
+    connect(thread, &QThread::finished, this, [this, thread = QPointer<QThread>(thread)] {
+        if (thread.isNull() || shuttingDown_) {
+            return;
+        }
+        if (backgroundThread_ == thread.data()) {
             backgroundThread_ = nullptr;
         }
         thread->deleteLater();
+        runNextTaskJob();
     });
     thread->start();
 }
 
 void AppController::handleElevationResult(const ElevatedPurpose purpose,
-                                           const Result<HandoffPayload> &result)
+                                            const Result<HandoffPayload> &result)
 {
+    if (shuttingDown_) {
+        return;
+    }
     elevationActive_ = false;
     elevationCancel_.reset();
     if (!result) {

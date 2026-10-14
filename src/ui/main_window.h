@@ -36,12 +36,14 @@ signals:
     void serversSaveRequested(const QStringList &servers);
     void scheduleChangeRequested(bool enabled, int intervalMinutes);
     void scheduleRemoveRequested();
+    void startupSyncChangeRequested(bool enabled);
     void languageChangeRequested(const QString &languageTag);
 
 public slots:
     void setReferenceState(const TimeSync::Ui::ReferenceState &state);
     void setBusyState(const TimeSync::Ui::BusyState &state);
     void setScheduleState(const TimeSync::Ui::ScheduleState &state);
+    void setStartupSyncState(const TimeSync::Ui::StartupSyncState &state);
     void setServerList(const QStringList &servers);
     void setDefaultServerList(const QStringList &servers);
     void setOperationResult(const TimeSync::Ui::OperationResult &result);
@@ -60,6 +62,7 @@ private:
     void updateReferenceDisplay();
     void updateBusyDisplay();
     void updateScheduleDisplay();
+    void updateStartupSyncDisplay();
     void updateServerDisplay();
     void updateResponsiveLayout();
     void showServerEditor();
@@ -123,6 +126,9 @@ private:
     QLabel *scheduleStatusValueLabel_ = nullptr;
     QPushButton *applyScheduleButton_ = nullptr;
     QPushButton *removeScheduleButton_ = nullptr;
+    QCheckBox *startupSyncCheck_ = nullptr;
+    QLabel *startupSyncDescriptionLabel_ = nullptr;
+    QLabel *startupSyncStatusLabel_ = nullptr;
 
     QFrame *serversPanel_ = nullptr;
     QLabel *serversHeadingLabel_ = nullptr;
@@ -142,6 +148,7 @@ private:
     ReferenceState referenceState_;
     BusyState busyState_;
     ScheduleState scheduleState_;
+    StartupSyncState startupSyncState_;
     QStringList servers_;
     QStringList defaultServers_;
     OperationResult lastOperationResult_;

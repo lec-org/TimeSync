@@ -14,13 +14,19 @@ namespace TimeSync {
 
 class CliRunner final {
 public:
+    static constexpr int StartupAcquisitionBudgetMs = 120000;
+    static constexpr int StartupMaximumAttempts = 12;
+    static constexpr int StartupRetryDelayMs = 5000;
+    [[nodiscard]] static bool shouldRetryStartupAcquisition(ErrorCode error,
+                                                           qint64 elapsedMs,
+                                                           int attempts);
     [[nodiscard]] ExitCode run(const ParsedCommand &command,
                                const QString &executablePath,
                                QTextStream &out,
                                QTextStream &err) const;
 
 private:
-    [[nodiscard]] Result<NtpSample> acquireFresh(const AppConfig &config) const;
+    [[nodiscard]] Result<NtpSample> acquireFresh(const AppConfig &config, int timeoutMs = 5000) const;
     [[nodiscard]] ExitCode runSync(const ParsedCommand &command,
                                     const QString &executablePath,
                                     const AppConfig &config,

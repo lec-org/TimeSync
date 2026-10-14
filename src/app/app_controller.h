@@ -17,6 +17,7 @@
 #include <QTimer>
 
 #include <atomic>
+#include <deque>
 #include <functional>
 #include <memory>
 
@@ -52,6 +53,7 @@ private slots:
     void onServersSaveRequested(const QStringList &servers);
     void onScheduleChangeRequested(bool enabled, int intervalMinutes);
     void onScheduleRemoveRequested();
+    void onStartupSyncChangeRequested(bool enabled);
     void onLanguageChangeRequested(const QString &languageTag);
     void onReferenceChanged(const TimeSync::TrustedClockState &state);
     void onOperationFinished(const TimeSync::OperationResult &result);
@@ -81,8 +83,11 @@ private:
     void applyReferenceState();
     void applyTaskState(const Result<ScheduledTaskInfo> &result);
     void queryTaskState();
+    void queryStartupSyncState();
+    void applyStartupSyncState(const Result<ScheduledTaskInfo> &result);
     void startTaskJob(std::function<Result<ScheduledTaskInfo>()> operation,
                       std::function<void(const Result<ScheduledTaskInfo> &)> completed);
+    void runNextTaskJob();
     void startElevation(ElevatedPurpose purpose, const QStringList &arguments, const HandoffFile &handoff);
     void handleElevationResult(ElevatedPurpose purpose, const Result<HandoffPayload> &result);
     void finishScheduleMutationSuccess();
@@ -123,12 +128,19 @@ private:
     int pendingScheduleInterval_ = ConfigRepository::defaultConfig().scheduleIntervalMinutes;
     bool pendingScheduleRemove_ = false;
 
+    struct TaskJob {
+        std::function<Result<ScheduledTaskInfo>()> operation;
+        std::function<void(const Result<ScheduledTaskInfo> &)> completed;
+    };
+    std::deque<TaskJob> taskJobs_;
+
     SyncCoordinator coordinator_;
     PowerResumeMonitor powerMonitor_;
     QTimer *clockTimer_ = nullptr;
 
     Ui::BusyState busyState_;
     Ui::ScheduleState scheduleState_;
+    Ui::StartupSyncState startupSyncState_;
     Ui::ReferenceFailure referenceFailure_ = Ui::ReferenceFailure::None;
     QString languageBeforeChange_;
     bool referenceLoading_ = false;

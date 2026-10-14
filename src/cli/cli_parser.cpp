@@ -20,6 +20,9 @@ Result<ParsedCommand> CliParser::parse(const QStringList &arguments) const
     bool syncOnce = false;
     bool installTask = false;
     bool removeTask = false;
+    bool installStartupTask = false;
+    bool removeStartupTask = false;
+    bool startupSeen = false;
     bool configSeen = false;
     bool dryRunSeen = false;
     bool scheduledSeen = false;
@@ -53,6 +56,22 @@ Result<ParsedCommand> CliParser::parse(const QStringList &arguments) const
                 return invalid(QStringLiteral("duplicate --remove-task"));
             }
             removeTask = true;
+        } else if (argument == QStringLiteral("--install-startup-task")) {
+            if (installStartupTask) {
+                return invalid(QStringLiteral("duplicate --install-startup-task"));
+            }
+            installStartupTask = true;
+        } else if (argument == QStringLiteral("--remove-startup-task")) {
+            if (removeStartupTask) {
+                return invalid(QStringLiteral("duplicate --remove-startup-task"));
+            }
+            removeStartupTask = true;
+        } else if (argument == QStringLiteral("--startup")) {
+            if (startupSeen) {
+                return invalid(QStringLiteral("duplicate --startup"));
+            }
+            startupSeen = true;
+            command.startup = true;
         } else if (argument == QStringLiteral("--dry-run")) {
             if (dryRunSeen) {
                 return invalid(QStringLiteral("duplicate --dry-run"));
@@ -124,17 +143,18 @@ Result<ParsedCommand> CliParser::parse(const QStringList &arguments) const
     const int internalCount = static_cast<int>(elevatedSync) + static_cast<int>(elevatedInstall)
         + static_cast<int>(elevatedRemove) + static_cast<int>(elevatedSetEnabled);
     const int publicCount = static_cast<int>(syncOnce) + static_cast<int>(installTask)
-        + static_cast<int>(removeTask);
+        + static_cast<int>(removeTask) + static_cast<int>(installStartupTask)
+        + static_cast<int>(removeStartupTask);
     if (help) {
         if (internalCount != 0 || publicCount != 0 || configSeen || dryRunSeen || scheduledSeen || resultSeen
-            || nonceSeen || enabledSeen) {
+            || nonceSeen || enabledSeen || startupSeen) {
             return invalid(QStringLiteral("--help cannot be combined with an operation"));
         }
         command.mode = CommandMode::Help;
         return Result<ParsedCommand>::success(std::move(command));
     }
     if (internalCount > 1 || (internalCount > 0 && publicCount > 0) || (internalCount > 0 && dryRunSeen)
-        || (internalCount > 0 && scheduledSeen)) {
+        || (internalCount > 0 && scheduledSeen) || (internalCount > 0 && startupSeen)) {
         return invalid(QStringLiteral("conflicting internal command"));
     }
     if (internalCount > 0) {
@@ -175,6 +195,9 @@ Result<ParsedCommand> CliParser::parse(const QStringList &arguments) const
     if (publicCount > 1) {
         return invalid(QStringLiteral("conflicting public commands"));
     }
+    if (startupSeen && (!syncOnce || !scheduledSeen)) {
+        return invalid(QStringLiteral("--startup requires --sync-once --scheduled"));
+    }
     if (dryRunSeen && !syncOnce) {
         return invalid(QStringLiteral("--dry-run requires --sync-once"));
     }
@@ -193,6 +216,10 @@ Result<ParsedCommand> CliParser::parse(const QStringList &arguments) const
         command.mode = CommandMode::InstallTask;
     } else if (removeTask) {
         command.mode = CommandMode::RemoveTask;
+    } else if (installStartupTask) {
+        command.mode = CommandMode::InstallStartupTask;
+    } else if (removeStartupTask) {
+        command.mode = CommandMode::RemoveStartupTask;
     } else {
         command.mode = CommandMode::Gui;
     }
@@ -214,6 +241,8 @@ QString CliParser::helpText()
         "  TimeSync.exe --sync-once [--dry-run] [--config <path>]\n"
         "  TimeSync.exe --install-task [--config <path>]\n"
         "  TimeSync.exe --remove-task [--config <path>]\n"
+        "  TimeSync.exe --install-startup-task [--config <path>]\n"
+        "  TimeSync.exe --remove-startup-task\n"
         "  TimeSync.exe --help\n");
 }
 

@@ -36,6 +36,7 @@ enum class OperationKind {
     SaveServers,
     ChangeSchedule,
     RemoveSchedule,
+    ChangeStartupSync,
 };
 
 enum class OperationFailure {
@@ -52,6 +53,7 @@ enum class OperationFailure {
     ScheduleAuthorizationDenied,
     ScheduleUpdateFailed,
     ScheduleRemoveFailed,
+    StartupSyncUpdateFailed,
     UncertainState,
     SystemTimeConfirming,
     Unknown,
@@ -72,6 +74,7 @@ struct BusyState {
     bool savingServers = false;
     bool changingSchedule = false;
     bool removingSchedule = false;
+    bool changingStartupSync = false;
 };
 
 struct ScheduleState {
@@ -87,9 +90,27 @@ struct OperationResult {
     OperationFailure failure = OperationFailure::Unknown;
 };
 
+enum class StartupSyncStatus {
+    Checking,
+    Disabled,
+    Enabled,
+    Updating,
+    Error,
+};
+
+// The OS task is the source of truth; this setting is not stored in AppConfig.
+struct StartupSyncState {
+    bool known = false;
+    bool exists = false;
+    bool enabled = false;
+    StartupSyncStatus status = StartupSyncStatus::Checking;
+    bool updateFailed = false;
+};
+
 } // namespace TimeSync::Ui
 
 Q_DECLARE_METATYPE(TimeSync::Ui::ReferenceState)
 Q_DECLARE_METATYPE(TimeSync::Ui::BusyState)
 Q_DECLARE_METATYPE(TimeSync::Ui::ScheduleState)
 Q_DECLARE_METATYPE(TimeSync::Ui::OperationResult)
+Q_DECLARE_METATYPE(TimeSync::Ui::StartupSyncState)

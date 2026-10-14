@@ -1,4 +1,5 @@
 #include "../src/cli/cli_parser.h"
+#include "../src/cli/cli_runner.h"
 #include "../src/core/config_repository.h"
 #include "../src/core/operation_types.h"
 #include "../src/core/sync_coordinator.h"
@@ -9,8 +10,11 @@
 #include "../src/platform/task_scheduler.h"
 #include "../src/platform/windows_system_clock.h"
 
+#include <QCoreApplication>
+#include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QFileInfo>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
@@ -40,6 +44,13 @@ private slots:
     void cliRejectsConflictsAndMapsExitCodes();
     void taskActionArgumentsAreAbsoluteAndQuoted();
     void taskRepetitionIntervalParsesNormalizedIso8601();
+    void startupCliIsIndependentAndStrict();
+    void startupTaskNameAndArgumentsAreIndependent();
+    void taskActionIdentitySurvivesPortableMigration();
+    void cliElevationWaitPolicyPreservesScheduledIsolation();
+    void startupAcquisitionRetriesAreBounded();
+    void scheduledRunnerRejectsMissingElevationBeforeConfiguration();
+    void startupTaskBackendReportsUnsupportedPlatform();
     void elevationBrokerQuotesArgumentsAndReportsPlatformSupport();
 };
 
@@ -322,7 +333,7 @@ void BackendTests::ntpClientReceivesFromLocalIpv6ServerWhenAvailable()
     NtpClient client;
     const NtpQueryResult result = waitForNtpResult(
         &client, loopbackEndpoint(QHostAddress::LocalHostIPv6, server.localPort()), options, 2000);
-    QVERIFY(result.succeeded);
+    QVERIFY2(result.succeeded, qPrintable(ntpFailureDiagnostic(result.failure)));
 }
 
 void BackendTests::syncCoordinatorRejectsConcurrentRequests()
@@ -482,6 +493,213 @@ void BackendTests::taskRepetitionIntervalParsesNormalizedIso8601()
     QCOMPARE(TaskSchedulerBackend::parseRepetitionIntervalMinutes(QStringLiteral("pt1h")), 60);
     QCOMPARE(TaskSchedulerBackend::parseRepetitionIntervalMinutes(QString()), 0);
     QCOMPARE(TaskSchedulerBackend::parseRepetitionIntervalMinutes(QStringLiteral("PT")), 0);
+}
+
+void BackendTests::startupCliIsIndependentAndStrict()
+{
+    CliParser parser;
+    QVERIFY(!parser.parse({}).value().startup);
+    const auto install = parser.parse({QStringLiteral("--install-startup-task"),
+                                      QStringLiteral("--config"), QStringLiteral("portable.ini")});
+    QVERIFY(install);
+    QCOMPARE(install.value().mode, CommandMode::InstallStartupTask);
+    QVERIFY(!install.value().scheduled);
+    const auto remove = parser.parse({QStringLiteral("--remove-startup-task")});
+    QVERIFY(remove);
+    QCOMPARE(remove.value().mode, CommandMode::RemoveStartupTask);
+
+    const QString absoluteConfig = QDir::current().absoluteFilePath(QStringLiteral("startup config.ini"));
+    const QStringList valid{QStringLiteral("--sync-once"), QStringLiteral("--scheduled"),
+                            QStringLiteral("--startup"), QStringLiteral("--config"), absoluteConfig};
+    const auto startup = parser.parse(valid);
+    QVERIFY(startup);
+    QCOMPARE(startup.value().mode, CommandMode::SyncOnce);
+    QVERIFY(startup.value().scheduled);
+    QVERIFY(startup.value().startup);
+    QVERIFY(!startup.value().dryRun);
+    QVERIFY(!parser.parse(valid + QStringList{QStringLiteral("--startup")}));
+    QVERIFY(!parser.parse(valid + QStringList{QStringLiteral("--dry-run")}));
+    QVERIFY(!parser.parse(valid + QStringList{QStringLiteral("--install-startup-task")}));
+
+    const QList<QStringList> invalid{
+        {QStringLiteral("--startup")},
+        {QStringLiteral("--sync-once"), QStringLiteral("--startup")},
+        {QStringLiteral("--help"), QStringLiteral("--startup")},
+        {QStringLiteral("--sync-once"), QStringLiteral("--scheduled"), QStringLiteral("--startup"),
+         QStringLiteral("--config"), QStringLiteral("relative.ini")},
+        {QStringLiteral("--install-startup-task"), QStringLiteral("--install-task")},
+        {QStringLiteral("--install-startup-task"), QStringLiteral("--remove-startup-task")},
+        {QStringLiteral("--remove-startup-task"), QStringLiteral("--remove-task")},
+        {QStringLiteral("--install-startup-task"), QStringLiteral("--install-startup-task")},
+        {QStringLiteral("--remove-startup-task"), QStringLiteral("--remove-startup-task")},
+        {QStringLiteral("--install-startup-task"), QStringLiteral("--scheduled")},
+        {QStringLiteral("--remove-startup-task"), QStringLiteral("--dry-run")},
+        {QStringLiteral("--elevated-sync"), QStringLiteral("--startup")},
+        {QStringLiteral("--install-startup-task"), QStringLiteral("--enabled"), QStringLiteral("true")},
+    };
+    for (const QStringList &arguments : invalid) {
+        QVERIFY2(!parser.parse(arguments), qPrintable(arguments.join(QLatin1Char(' '))));
+    }
+    QVERIFY(CliParser::helpText().contains(QStringLiteral("--install-startup-task")));
+    QVERIFY(CliParser::helpText().contains(QStringLiteral("--remove-startup-task")));
+}
+
+void BackendTests::startupTaskNameAndArgumentsAreIndependent()
+{
+    QCOMPARE(TaskSchedulerBackend::taskName(), TaskSchedulerBackend::taskName(ScheduledTaskKind::Periodic));
+    QCOMPARE(TaskSchedulerBackend::taskName(ScheduledTaskKind::Startup),
+             QStringLiteral("TimeSync.StandardClock.StartupSync.v1"));
+    QVERIFY(TaskSchedulerBackend::taskName(ScheduledTaskKind::Startup) != TaskSchedulerBackend::taskName());
+    const QString config = QDir::current().absoluteFilePath(QStringLiteral("Time Sync/中文配置.ini"));
+    QCOMPARE(TaskSchedulerBackend::buildActionArguments(config, ScheduledTaskKind::Startup),
+             QStringLiteral("--sync-once --scheduled --startup --config %1")
+                 .arg(ElevationBroker::quoteWindowsArgument(config)));
+    QCOMPARE(TaskSchedulerBackend::buildActionArguments(config, ScheduledTaskKind::Periodic),
+             TaskSchedulerBackend::buildActionArguments(config));
+    QVERIFY(!TaskSchedulerBackend::buildActionArguments(config).contains(QStringLiteral("--startup")));
+}
+
+void BackendTests::taskActionIdentitySurvivesPortableMigration()
+{
+    // Old paths need not exist or equal the currently running EXE. Registry author/current
+    // user checks are separate; these assertions cover the semantic action identity layer.
+    const QString oldExecutable = QDir::current().absoluteFilePath(QStringLiteral("old portable/TimeSync.exe"));
+    const QString movedExecutable = QDir::current().absoluteFilePath(QStringLiteral("new portable/TimeSync.exe"));
+    const QString config = QDir::current().absoluteFilePath(QStringLiteral("old portable/config.ini"));
+    const QStringList periodic{QStringLiteral("--sync-once"), QStringLiteral("--scheduled"),
+                               QStringLiteral("--config"), config};
+    const QStringList startup{QStringLiteral("--sync-once"), QStringLiteral("--scheduled"),
+                              QStringLiteral("--startup"), QStringLiteral("--config"), config};
+    for (const QString &executable : {oldExecutable, movedExecutable}) {
+        QVERIFY(TaskSchedulerBackend::isOwnedTaskAction(executable, periodic));
+        QVERIFY(TaskSchedulerBackend::isOwnedTaskAction(executable, startup, ScheduledTaskKind::Startup));
+        QVERIFY(!TaskSchedulerBackend::isOwnedTaskAction(executable, periodic, ScheduledTaskKind::Startup));
+        QVERIFY(!TaskSchedulerBackend::isOwnedTaskAction(executable, startup, ScheduledTaskKind::Periodic));
+    }
+    // Noncanonical ordering remains recognizable for repair/removal, rather than being
+    // confused with an unrelated task. Strict Startup query validates the full template separately.
+    QVERIFY(TaskSchedulerBackend::isOwnedTaskAction(oldExecutable,
+        {QStringLiteral("--config"), config, QStringLiteral("--scheduled"), QStringLiteral("--sync-once")}));
+    QVERIFY(TaskSchedulerBackend::isOwnedTaskAction(oldExecutable,
+        {QStringLiteral("--config"), config, QStringLiteral("--startup"),
+         QStringLiteral("--scheduled"), QStringLiteral("--sync-once")}, ScheduledTaskKind::Startup));
+    QVERIFY(!TaskSchedulerBackend::isOwnedTaskAction(QStringLiteral("relative.exe"), periodic));
+    QVERIFY(!TaskSchedulerBackend::isOwnedTaskAction(oldExecutable, {}));
+    QVERIFY(!TaskSchedulerBackend::isOwnedTaskAction(oldExecutable,
+        {QStringLiteral("--sync-once"), QStringLiteral("--scheduled"), QStringLiteral("--config"),
+         QStringLiteral("relative.ini")}));
+    QVERIFY(!TaskSchedulerBackend::isOwnedTaskAction(oldExecutable,
+        periodic + QStringList{QStringLiteral("--dry-run")}));
+    QVERIFY(!TaskSchedulerBackend::isOwnedTaskAction(oldExecutable,
+        periodic + QStringList{QStringLiteral("--scheduled")}));
+    QVERIFY(!TaskSchedulerBackend::isOwnedTaskAction(oldExecutable,
+        startup + QStringList{QStringLiteral("--startup")}, ScheduledTaskKind::Startup));
+    QVERIFY(!TaskSchedulerBackend::isOwnedTaskAction(oldExecutable,
+        {QStringLiteral("--install-task"), QStringLiteral("--config"), config}));
+}
+
+void BackendTests::cliElevationWaitPolicyPreservesScheduledIsolation()
+{
+    CliParser parser;
+    QVERIFY(!parser.parse({}).value().requiresSynchronousElevation());
+    QVERIFY(!parser.parse({QStringLiteral("--help")}).value().requiresSynchronousElevation());
+    for (const QString &operation : {QStringLiteral("--sync-once"), QStringLiteral("--install-task"),
+                                    QStringLiteral("--remove-task"), QStringLiteral("--install-startup-task"),
+                                    QStringLiteral("--remove-startup-task")}) {
+        const auto parsed = parser.parse({operation});
+        QVERIFY(parsed);
+        QVERIFY(parsed.value().requiresSynchronousElevation());
+    }
+    const auto dryRun = parser.parse({QStringLiteral("--sync-once"), QStringLiteral("--dry-run")});
+    QVERIFY(dryRun);
+    QVERIFY(dryRun.value().requiresSynchronousElevation());
+    const QString config = QDir::current().absoluteFilePath(QStringLiteral("config.ini"));
+    const QStringList scheduled{QStringLiteral("--sync-once"), QStringLiteral("--scheduled"),
+                                QStringLiteral("--config"), config};
+    const auto periodic = parser.parse(scheduled);
+    QVERIFY(periodic);
+    QVERIFY(!periodic.value().requiresSynchronousElevation());
+    const auto startup = parser.parse(scheduled + QStringList{QStringLiteral("--startup")});
+    QVERIFY(startup);
+    QVERIFY(!startup.value().requiresSynchronousElevation());
+    const auto internal = parser.parse({QStringLiteral("--elevated-sync"), QStringLiteral("--result"),
+        QDir::current().absoluteFilePath(QStringLiteral("result.json")), QStringLiteral("--nonce"),
+        QStringLiteral("0123456789abcdef0123456789abcdef")});
+    QVERIFY(internal);
+    QVERIFY(internal.value().requiresSynchronousElevation());
+}
+
+void BackendTests::startupAcquisitionRetriesAreBounded()
+{
+    for (const ErrorCode error : {ErrorCode::NetworkUnavailable, ErrorCode::SourceTimeout, ErrorCode::NoValidSource}) {
+        QVERIFY(CliRunner::shouldRetryStartupAcquisition(error, 0, 1));
+        QVERIFY(CliRunner::shouldRetryStartupAcquisition(error, 50000, 5));
+        QVERIFY(!CliRunner::shouldRetryStartupAcquisition(error, CliRunner::StartupAcquisitionBudgetMs, 1));
+        QVERIFY(!CliRunner::shouldRetryStartupAcquisition(error, 113000, 1));
+        QVERIFY(!CliRunner::shouldRetryStartupAcquisition(error, 0, CliRunner::StartupMaximumAttempts));
+        QVERIFY(!CliRunner::shouldRetryStartupAcquisition(error, -1, 1));
+        QVERIFY(!CliRunner::shouldRetryStartupAcquisition(error, 0, 0));
+    }
+    // In particular, success and any system-write/verification failure cannot initiate another acquisition/write.
+    for (const ErrorCode error : {ErrorCode::None, ErrorCode::InvalidConfiguration, ErrorCode::InvalidArgument,
+                                 ErrorCode::ProtocolRejected, ErrorCode::Cancelled, ErrorCode::Busy,
+                                 ErrorCode::InternalError, ErrorCode::PrivilegeMissing,
+                                 ErrorCode::SystemTimeRejected, ErrorCode::VerificationFailed,
+                                 ErrorCode::UncertainState}) {
+        QVERIFY(!CliRunner::shouldRetryStartupAcquisition(error, 0, 1));
+    }
+}
+
+void BackendTests::scheduledRunnerRejectsMissingElevationBeforeConfiguration()
+{
+    const auto elevated = ElevationBroker::isProcessElevated();
+#ifdef Q_OS_WIN
+    if (!elevated || elevated.value()) {
+        QSKIP("Requires an unelevated Windows token; this test never mutates time or tasks");
+    }
+#endif
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    ParsedCommand command;
+    command.mode = CommandMode::SyncOnce;
+    command.scheduled = true;
+    command.configPath = temporary.filePath(QStringLiteral("must-not-be-created.ini"));
+    QString output;
+    QString errors;
+    QTextStream out(&output);
+    QTextStream err(&errors);
+    CliRunner runner;
+    for (const bool startup : {false, true}) {
+        command.startup = startup;
+        const ExitCode result = runner.run(command, QCoreApplication::applicationFilePath(), out, err);
+        QCOMPARE(result, elevated ? ExitCode::PermissionFailure : exitCodeForError(elevated.error().code));
+        QVERIFY(!QFileInfo::exists(command.configPath));
+    }
+    QVERIFY(output.isEmpty());
+    QVERIFY(errors.contains(QStringLiteral("elevated task token")));
+}
+
+void BackendTests::startupTaskBackendReportsUnsupportedPlatform()
+{
+#ifndef Q_OS_WIN
+    for (const ScheduledTaskKind kind : {ScheduledTaskKind::Periodic, ScheduledTaskKind::Startup}) {
+        TaskSchedulerBackend backend(kind);
+        const auto query = backend.query();
+        QVERIFY(!query);
+        QCOMPARE(query.error().code, ErrorCode::UnsupportedPlatform);
+        const auto install = backend.install(QStringLiteral("TimeSync"), QStringLiteral("config.ini"), 0);
+        QVERIFY(!install);
+        QCOMPARE(install.error().code, ErrorCode::UnsupportedPlatform);
+        const auto disable = backend.setEnabled(false);
+        QVERIFY(!disable);
+        QCOMPARE(disable.error().code, ErrorCode::UnsupportedPlatform);
+        const auto remove = backend.remove();
+        QVERIFY(!remove);
+        QCOMPARE(remove.error().code, ErrorCode::UnsupportedPlatform);
+    }
+#else
+    QSKIP("Real Task Scheduler mutation/ownership tests belong to the Windows validation lane");
+#endif
 }
 
 void BackendTests::elevationBrokerQuotesArgumentsAndReportsPlatformSupport()

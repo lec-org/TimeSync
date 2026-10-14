@@ -43,13 +43,19 @@ NTP over UDP provides no cryptographic assurance of a server's authenticity. Sam
 2. Enter a **Sync interval** between **1 and 10080 minutes**; the default is **60 minutes**.
 3. Select **Apply** to create or update the Windows Task Scheduler task, then check **Schedule status**.
 
-To delete the task, select **Remove schedule** and confirm removal.
+To delete the periodic task, select **Remove schedule** and confirm removal.
 
-The task launches the same TimeSync executable used to configure it, under the current administrative user with highest privileges. Keep that executable in its installed folder so the task can continue to launch it.
+In the same **Automatic time sync** area, **Sync once after sign-in at startup** is a separate option, off by default. Select it to register a background synchronization task for the current user's sign-in, with a 30-second delay. Initial setup in the GUI still requires administrator authorization; subsequent sign-in runs do not display another UAC prompt. Clear the option to remove this task. It is independent of the periodic schedule and does not run before sign-in.
+
+If the network is unavailable at sign-in, TimeSync retries time acquisition within a limited window. It does not retry the system-clock write.
+
+Both tasks launch the same TimeSync executable used to configure them, under the current administrative user with highest privileges. Keep the executable and configuration file at their registered paths. If you move them, reopen the GUI from the new location and reapply the affected options.
 
 ## Settings file
 
 Use the GUI to change servers, scheduling, and language. Settings are stored in `config.ini` alongside the executable.
+
+The sign-in sync option is read from Windows Task Scheduler, not stored in `config.ini`; the file retains the same three fields below.
 
 The file format is UTF-8 with exactly three fields, one per line, without comments or section headers. This example uses three sample servers:
 
@@ -76,6 +82,8 @@ TimeSync.exe
 TimeSync.exe --sync-once [--dry-run] [--config <path>]
 TimeSync.exe --install-task [--config <path>]
 TimeSync.exe --remove-task [--config <path>]
+TimeSync.exe --install-startup-task [--config <path>]
+TimeSync.exe --remove-startup-task
 TimeSync.exe --help
 ```
 
@@ -83,6 +91,8 @@ TimeSync.exe --help
 - `--sync-once` performs one synchronization; adding `--dry-run` fetches and prints an NTP sample while leaving the system clock unchanged.
 - `--install-task` creates or updates the scheduled task using the configured interval.
 - `--remove-task` deletes the scheduled task.
+- `--install-startup-task` creates or updates the separate sign-in sync task for the current user, with a 30-second delay.
+- `--remove-startup-task` deletes the sign-in sync task without changing the periodic schedule.
 - `--config <path>` selects a configuration file for the operation.
 - `--help` displays usage information.
 

@@ -25,15 +25,45 @@ int main(int argc, char *argv[])
     QTextStream out(stdout);
     QTextStream err(stderr);
 
+    QStringList arguments = application.arguments();
+    if (!arguments.isEmpty()) {
+        arguments.removeFirst();
+    }
+    TimeSync::CliParser parser;
+    const TimeSync::Result<TimeSync::ParsedCommand> parsed = parser.parse(arguments);
+    if (!parsed) {
+        err << "Invalid command-line arguments.\n";
+        return static_cast<int>(TimeSync::ExitCode::ArgumentOrConfiguration);
+    }
+    const TimeSync::ParsedCommand command = parsed.value();
+    if (command.mode == TimeSync::CommandMode::Help) {
+        out << TimeSync::CliParser::helpText();
+        return static_cast<int>(TimeSync::ExitCode::Success);
+    }
+
     const TimeSync::Result<bool> elevated = TimeSync::ElevationBroker::isProcessElevated();
     if (!elevated && elevated.error().code != TimeSync::ErrorCode::UnsupportedPlatform) {
         err << "Unable to determine administrator privileges: " << elevated.error().detail << '\n';
         return static_cast<int>(TimeSync::exitCodeForError(elevated.error().code));
     }
     if (elevated && !elevated.value()) {
+        if (command.scheduled) {
+            err << "Scheduled synchronization requires an elevated task token.\n";
+            return static_cast<int>(TimeSync::ExitCode::PermissionFailure);
+        }
         QStringList relaunchArguments = application.arguments();
         if (!relaunchArguments.isEmpty()) {
             relaunchArguments.removeFirst();
+        }
+
+        if (command.requiresSynchronousElevation()) {
+            const TimeSync::Result<int> completed = TimeSync::ElevationBroker::runAsAdministrator(
+                QCoreApplication::applicationFilePath(), relaunchArguments);
+            if (completed) {
+                return completed.value();
+            }
+            err << "Unable to run command as administrator: " << completed.error().detail << '\n';
+            return static_cast<int>(TimeSync::exitCodeForError(completed.error().code));
         }
 
         const TimeSync::Result<void> relaunched = TimeSync::ElevationBroker::relaunchAsAdministrator(
@@ -50,19 +80,6 @@ int main(int argc, char *argv[])
         return static_cast<int>(TimeSync::exitCodeForError(relaunched.error().code));
     }
 
-    QStringList arguments = application.arguments();
-    if (!arguments.isEmpty()) {
-        arguments.removeFirst();
-    }
-
-    TimeSync::CliParser parser;
-    const TimeSync::Result<TimeSync::ParsedCommand> parsed = parser.parse(arguments);
-    if (!parsed) {
-        err << "Invalid command-line arguments.\n";
-        return static_cast<int>(TimeSync::ExitCode::ArgumentOrConfiguration);
-    }
-
-    const TimeSync::ParsedCommand command = parsed.value();
     if (command.mode != TimeSync::CommandMode::Gui) {
         TimeSync::CliRunner runner;
         return static_cast<int>(runner.run(command,
